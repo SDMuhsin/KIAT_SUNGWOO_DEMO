@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build dist/sage-demo.html: ONE self-contained file (CSS + JS + vendored three.js inlined).
+"""Build demo/sage-demo.html: ONE self-contained file (CSS + JS + vendored three.js inlined).
 
 Works by double-click (file://) with no server. Stdlib only; runs on Python 3.7+ (Windows/mac/linux).
 
@@ -8,12 +8,12 @@ classic <script> (an IIFE). `import`/`export` statements are rewritten, dynamic 
 the registry, and the entry module runs inside an async function (it uses top-level await). Exports are live
 getters, so circular imports behave like real ES modules. No importmap, no blob/data URLs, no CORS.
 
-Usage:  python tools/build_single.py [-o dist/sage-demo.html]
+Usage:  python tools/build_single.py [-o demo/sage-demo.html]
 """
 import argparse, os, re, sys, posixpath
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-ENTRY = 'js/main.js'
+ENTRY = 'demo/js/main.js'
 BARE = {'three': 'vendor/three/build/three.module.js'}
 BARE_PREFIX = {'three/addons/': 'vendor/three/examples/jsm/'}
 
@@ -111,10 +111,6 @@ def transform(rel, src):
 
 def collect():
     mods, order, stack = {}, [], [ENTRY]
-    # dynamic imports in main.js: scenes loaded by template string -> include every real scene module
-    scenes = sorted(f for f in os.listdir(os.path.join(ROOT, 'js', 'scenes')) if f.endswith('.js') and not f.startswith('_'))
-    extra = ['js/scenes/' + f for f in scenes]
-    stack += extra[::-1]
     while stack:
         rel = stack.pop()
         if rel in mods:
@@ -148,8 +144,8 @@ def build(out):
     js = ''.join(parts)
 
     # the entry module is async: __r returns the exports object immediately while main's top-level await continues.
-    html = read('index.html')
-    css = read('css/style.css')
+    html = read('demo/index.html')
+    css = read('demo/css/style.css')
     html = re.sub(r'<script type="importmap">.*?</script>\s*', '', html, flags=re.S)
     html = html.replace('<link rel="stylesheet" href="css/style.css">', '<style>\n' + css.replace('</style', '<\\/style') + '\n</style>')
     # classic script placed at end of body (DOM must exist: main.js reads elements at start)
@@ -164,7 +160,7 @@ def build(out):
 
 if __name__ == '__main__':
     ap = argparse.ArgumentParser()
-    ap.add_argument('-o', '--out', default=os.path.join(ROOT, 'dist', 'sage-demo.html'))
+    ap.add_argument('-o', '--out', default=os.path.join(ROOT, 'demo', 'sage-demo.html'))
     a = ap.parse_args()
     n, size = build(a.out)
     print('built %s: %d modules, %.2f MB' % (a.out, n, size / 1e6))

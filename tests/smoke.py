@@ -1,90 +1,137 @@
 #!/usr/bin/env python3
-"""End-to-end smoke test. Run from repo root:  python3 tests/smoke.py [--shots DIR] [--tag NAME]
-Needs `pip install playwright` + a chromium (`playwright install chromium`). Serves the repo via http.server,
-walks all stages forward and back, checks reveal gating, knobs, hash deep-link, keys, no overflow, zero console errors."""
-import argparse, subprocess, sys, time, socket, os, pathlib
+"""ONE smoke test for the single-scene demo. Run from anywhere:  python tests/smoke.py [--shots DIR]
+Needs `pip install playwright` + a chromium (or $CHROMIUM_PATH). Serves the repo over http, ALSO loads the single-file bundle from file://
+(rebuilt first). Checks: zero console errors / page errors / external requests, SAGE toggle readouts decrease monotonically and restore,
+knobs change counts, scrub works, reduced motion, no geometry/texture growth, no horizontal overflow at 1280x720 and 390x844. Writes screenshots."""
+import argparse, json, os, pathlib, subprocess, sys
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+from _common import ROOT, serve, launch
 from playwright.sync_api import sync_playwright
 
-ROOT = pathlib.Path(__file__).resolve().parent.parent
-ap = argparse.ArgumentParser(); ap.add_argument('--shots', default=str(ROOT / 'llmdocs/shots/foundation')); ap.add_argument('--settle', type=float, default=2.2)
+ap = argparse.ArgumentParser(); ap.add_argument('--shots', default=str(ROOT / 'llmdocs' / 'shots' / 'demo')); ap.add_argument('--slow', type=float, default=1.0)
 args = ap.parse_args(); shots = pathlib.Path(args.shots); shots.mkdir(parents=True, exist_ok=True)
-
-s = socket.socket(); s.bind(('127.0.0.1', 0)); port = s.getsockname()[1]; s.close()
-srv = subprocess.Popen([sys.executable, '-m', 'http.server', str(port), '--bind', '127.0.0.1'], cwd=ROOT, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-time.sleep(0.8)
-errors, fails = [], []
+fails = []
 def check(cond, msg):
-    if not cond: fails.append(msg); print('FAIL', msg)
-    else: print('ok  ', msg)
+    print(('ok   ' if cond else 'FAIL ') + msg)
+    if not cond: fails.append(msg)
 
-try:
-    with sync_playwright() as p:
-        import glob
-        la = dict(args=['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'])
-        try: b = p.chromium.launch(**la)
-        except Exception:  # playwright/browser version mismatch: use any installed chromium (or $CHROMIUM_PATH)
-            cands = [os.environ.get('CHROMIUM_PATH')] + sorted(glob.glob(os.path.expanduser('~/.cache/ms-playwright/chromium_headless_shell-*/*/chrome-headless-shell')) + glob.glob(os.path.expanduser('~/.cache/ms-playwright/chromium-*/chrome-linux*/chrome')))
-            b = p.chromium.launch(executable_path=next(c for c in cands if c), **la)
-        def newpage(w, h):
-            pg = b.new_page(viewport={'width': w, 'height': h})
-            _wt = pg.wait_for_timeout; pg.wait_for_timeout = lambda ms: _wt(int(ms * float(os.environ.get('SMOKE_SLOW', '2'))))  # animations are frame-driven; software GL is slow, so scale fixed waits (SMOKE_SLOW=1 to disable)
-            pg.on('console', lambda m: errors.append(m.text) if m.type == 'error' else None)
-            pg.on('pageerror', lambda e: errors.append(str(e)))
-            pg.on('requestfailed', lambda r: errors.append('requestfailed ' + r.url))
-            return pg
-        pg = newpage(1280, 720); url = f'http://127.0.0.1:{port}/index.html'
-        pg.goto(url); pg.wait_for_function('window.__demo && window.__demo.frames > 5', timeout=60000)
-        n = pg.evaluate('__demo.STAGES.length'); check(n == 20, f'20 slides (got {n})')
-        parts_by_stage = pg.evaluate('__demo.STAGES.map(s=>s.parts)')
-        def reveal_ok(i, tag):
-            r = pg.evaluate('__demo.ctx.state.reveal'); bad = []
-            for k, parts in enumerate(parts_by_stage):
-                for part in parts:
-                    want = 1 if k <= i else 0
-                    if abs(r[part] - want) > 0.02: bad.append((part, r[part], want))
-            check(not bad, f'{tag}: reveal gating at stage {i} {bad[:2]}')
-        def idx(): return pg.evaluate('__demo.controller.index')
-        def settled(): pg.wait_for_function('__demo.controller.settled', timeout=90000)
-        SID = pg.evaluate('__demo.STAGES.map(s=>s.id)'); IX = {k: v for v, k in enumerate(SID)}
-        pg.wait_for_timeout(int(args.settle * 1000)); reveal_ok(0, 'initial')
-        pg.screenshot(path=str(shots / 'fwd-01.png'))
-        for i in range(1, n):
-            pg.keyboard.press('ArrowRight' if i % 2 else 'Space') if i < 3 else pg.click('#btn-next')
-            settled(); pg.wait_for_timeout(int(args.settle * 1000)); check(idx() == i, f'forward -> {i}')
-            reveal_ok(i, 'fwd')
-            isc = pg.evaluate(f'__demo.STAGES[{i}].kind === "card"'); eff = pg.evaluate('__demo.ctx.state.stageIndex')
-            check(pg.is_visible('#card-panel') == isc, f'card panel visible iff slide {i} is a card')
-            if isc: check(eff == i - 1, f'card {i} keeps the previous 3D stage live (eff {eff})')
-            check(len(pg.inner_text('#hud-bridge')) > 10, f'bridge caption at {i}')
-            pg.screenshot(path=str(shots / f'fwd-{i+1:02d}.png'))
-            check(pg.inner_text('#hud-count') == f'{i+1} / {n}', f'progress text {i+1}')
-        check(pg.is_disabled('#btn-next'), 'next disabled at end')
-        for i in range(n - 2, -1, -1):
-            pg.keyboard.press('ArrowLeft'); settled(); pg.wait_for_timeout(1800); check(idx() == i, f'back -> {i}')
-            if i in (IX['sage-jax'], IX['bounds'], IX['roofline-primer'], 0): reveal_ok(i, 'back'); pg.screenshot(path=str(shots / f'back-{i+1:02d}.png'))
-        # dots + hash
-        pg.click(f"#hud-dots button:nth-child({IX['bounds'] + 1})"); pg.wait_for_timeout(300); check(idx() == IX['bounds'] and pg.evaluate('location.hash') == '#stage=bounds', 'dot click sets stage + hash'); settled(); pg.wait_for_timeout(600)
-        # knob panel: bounds stage shows 6 knobs; moving slider updates knob + live readout
-        check(pg.locator('#knob-panel .knob').count() == 6, 'bounds stage shows 6 knobs')
-        before = pg.evaluate("__demo.ctx.knobs.get('width')"); pg.locator('#knob-width').fill('900'); pg.wait_for_timeout(200)
-        after = pg.evaluate("__demo.ctx.knobs.get('width')"); check(after > before, f'width slider live ({before}->{after})')
-        pg.select_option('#knob-precision', 'bf16'); check(pg.evaluate("__demo.ctx.knobs.get('precision')") == 'bf16', 'precision select')
-        check('model estimate' in pg.inner_text('#hud-readouts'), 'model-estimate readout shown')
-        check(pg.locator('#hud-badges .badge').count() >= 1, 'badges shown')
-        pg.close(); pg = newpage(1280, 720)
-        pg.goto(url + '#stage=sage-jax'); pg.wait_for_function('window.__demo && window.__demo.frames > 5'); pg.wait_for_timeout(500)
-        check(idx() == IX['sage-jax'], 'hash deep link -> sage-jax'); reveal_ok(IX['sage-jax'], 'deeplink')
-        check(pg.locator('#knob-sageHalf').count() == 1, 'toggle knob rendered')
-        for w, h, tag in ((1280, 720, 'desk'), (390, 844, 'mobile')):
-            q = newpage(w, h); q.goto(url + '#stage=backward'); q.wait_for_function('window.__demo && window.__demo.frames > 5'); q.wait_for_timeout(800)
-            ov = q.evaluate('[document.documentElement.scrollWidth - innerWidth, document.documentElement.scrollHeight - innerHeight]')
-            check(ov[0] <= 0 and ov[1] <= 0, f'no page overflow at {w}x{h} {ov}')
-            hb = q.evaluate("(()=>{const a=document.getElementById('hud-top').getBoundingClientRect(),c=document.getElementById('hud-bottom').getBoundingClientRect();return c.top>=a.bottom-1&&c.left>=0&&c.right<=innerWidth})()")
-            check(hb, f'top/bottom HUD cards do not collide at {w}x{h}')
-            q.screenshot(path=str(shots / f'{tag}-backward.png')); q.close()
-        b.close()
-finally:
-    srv.terminate()
-real = [e for e in errors]
-check(not real, f'zero console errors ({real[:3]})')
-print('SMOKE', 'FAIL' if fails else 'PASS', f'({len(fails)} failures)'); sys.exit(1 if fails else 0)
+subprocess.run([sys.executable, str(ROOT / 'tools' / 'build_single.py')], check=True, stdout=subprocess.DEVNULL)
+bundle = ROOT / 'demo' / 'sage-demo.html'
+txt = bundle.read_text(encoding='utf-8')
+import re
+check('type="module"' not in txt and 'importmap' not in txt and not re.search(r'(src|href)=["\']https?:', txt), 'bundle: single classic script, no importmap, no remote src/href')
+
+def st(pg): return pg.evaluate('window.__sage.state()')
+def wait_for(pg, js, timeout=120000): pg.wait_for_function(js, timeout=timeout, polling=100)
+
+def open_page(b, url, w, h, tag, **ctx):
+    c = b.new_context(viewport={'width': w, 'height': h}, **ctx); pg = c.new_page()
+    pg.errors, pg.external = [], []
+    pg.on('console', lambda m: pg.errors.append(m.type + ': ' + m.text) if m.type in ('error', 'warning') else None)
+    pg.on('pageerror', lambda e: pg.errors.append('pageerror: ' + str(e)))
+    ok = ('http://127.0.0.1', 'file://', 'data:', 'blob:', 'about:')
+    pg.on('request', lambda r: pg.external.append(r.url) if not r.url.startswith(ok) else None)
+    pg.goto(url); wait_for(pg, 'window.__sage && window.__sage.state().nodes > 0', 60000); pg.wait_for_timeout(800)
+    return pg
+
+def toggle_sequence(pg, tag):
+    """Click SAGE, sample the readouts until the transition ends; assert monotone down; click again; assert monotone up and exact restore."""
+    pg.evaluate('window.__sage.setU(0.55)')
+    s0 = st(pg); check(s0['nodes'] == 648 and s0['matmuls'] == 24, f'{tag}: baseline readouts nodes=648 matmuls=24 (got {s0["nodes"]}, {s0["matmuls"]})')
+    keys = ['nodes', 'matmuls', 'memory', 'stepTime']
+    def run(target):
+        pg.click('#sage-btn'); seq = [st(pg)]; n = 0
+        while n < 2000:
+            pg.wait_for_timeout(60); seq.append(st(pg)); n += 1
+            if abs(seq[-1]['s'] - target) < 1e-6 and n > 3: break
+        return seq
+    down = run(1)
+    for k in keys:
+        v = [x[k] for x in down]; check(all(a >= b for a, b in zip(v, v[1:])) and v[-1] < v[0], f'{tag}: {k} decreases monotonically ({v[0]:.4g} -> {v[-1]:.4g}, {len(v)} samples)')
+    check(len({x['nodes'] for x in down}) > 4, f'{tag}: transition is gradual (>4 distinct node counts)')
+    f = down[-1]; check(f['nodes'] == 30 and f['matmuls'] == 10, f'{tag}: SAGE final nodes=30 matmuls=10 (got {f["nodes"]}, {f["matmuls"]})')
+    up = run(0)
+    for k in keys:
+        v = [x[k] for x in up]; check(all(a <= b for a, b in zip(v, v[1:])) and v[-1] > v[0], f'{tag}: {k} increases monotonically on toggle back')
+    r = up[-1]; check(all(abs(r[k] - s0[k]) <= 1e-9 * max(1, abs(s0[k])) for k in keys), f'{tag}: toggling back restores the baseline exactly ' + ('' if all(r[k] == s0[k] for k in keys) else str({k: (s0[k], r[k]) for k in keys})))
+
+with sync_playwright() as p:
+    b = launch(p)
+    srv, port = serve()
+    try:
+        # ---------- desktop over http: functional ----------
+        pg = open_page(b, f'http://127.0.0.1:{port}/demo/index.html', 1280, 720, 'http')
+        toggle_sequence(pg, 'http')
+        # knobs change counts (through the real slider UI for batch, the API for the rest)
+        c0 = st(pg)['counts']
+        pg.evaluate("() => { const i = document.querySelector('#knob-batch'); i.value = 1000; i.dispatchEvent(new Event('input', {bubbles:true})); }"); pg.wait_for_timeout(400)
+        c1 = st(pg)['counts']; check(c1['data'] > c0['data'], f'knob batch (UI slider) raises drawn data points {c0["data"]} -> {c1["data"]}')
+        pg.evaluate("window.__sage.knobs.set('resPoints', 65536)"); pg.wait_for_timeout(300)
+        c2 = st(pg)['counts']; check(c2['res'] > c1['res'], f'knob resPoints raises residual points {c1["res"]} -> {c2["res"]}')
+        pg.evaluate("window.__sage.setS(0)")
+        base = st(pg); n_base = base['nodes']
+        pg.evaluate("window.__sage.knobs.set('pdeOrder', 3)"); pg.wait_for_timeout(300); check(st(pg)['nodes'] > n_base, 'knob derivative order 3 grows the physics graph')
+        pg.evaluate("window.__sage.knobs.set('pdeOrder', 1)"); pg.wait_for_timeout(300); check(st(pg)['nodes'] < n_base, 'knob derivative order 1 shrinks the physics graph')
+        pg.evaluate("window.__sage.knobs.set('pdeOrder', 2)")
+        pg.evaluate("window.__sage.knobs.set('depth', 8)"); pg.wait_for_timeout(300); d8 = st(pg); check(d8['nodes'] > n_base and d8['matmuls'] > 24, f'knob depth 8: nodes {d8["nodes"]}, matmuls {d8["matmuls"]}')
+        pg.evaluate("window.__sage.knobs.set('depth', 4)")
+        m0 = st(pg)['memory']
+        pg.evaluate("window.__sage.knobs.set('precision', 'bf16')"); pg.wait_for_timeout(300); check(st(pg)['memory'] < m0, 'knob precision bf16 lowers memory')
+        pg.evaluate("window.__sage.knobs.set('precision', 'fp32')")
+        pg.evaluate("window.__sage.knobs.set('adam', false)"); pg.wait_for_timeout(300); check(st(pg)['memory'] < m0, 'knob Adam off lowers memory')
+        pg.evaluate("window.__sage.knobs.set('adam', true)")
+        t0 = st(pg)['stepTime']; pg.evaluate("window.__sage.knobs.set('bandwidth', 100)"); pg.wait_for_timeout(300); check(st(pg)['stepTime'] > t0, 'knob bandwidth down raises step time')
+        pg.evaluate("window.__sage.knobs.set('bandwidth', 696)")
+        pg.evaluate("window.__sage.knobs.set('width', 256)"); pg.wait_for_timeout(300); check(st(pg)['memory'] > m0, 'knob width raises memory')
+        pg.evaluate("window.__sage.knobs.set('width', 128)"); pg.evaluate("window.__sage.knobs.set('batch', 4096)"); pg.evaluate("window.__sage.knobs.set('resPoints', 4096)"); pg.wait_for_timeout(300)
+        # scrub
+        pg.evaluate("() => { const i = document.querySelector('#scrub'); i.value = 120; i.dispatchEvent(new Event('input', {bubbles:true})); }"); pg.wait_for_timeout(300)
+        a = st(pg); pg.evaluate("() => { const i = document.querySelector('#scrub'); i.value = 600; i.dispatchEvent(new Event('input', {bubbles:true})); }"); pg.wait_for_timeout(300); c = st(pg)
+        check(abs(a['u'] - 0.12) < 0.01 and abs(c['u'] - 0.6) < 0.01 and not c['playing'] and a['phase'] != c['phase'], f'scrub moves the step and pauses ({a["phase"]} -> {c["phase"]})')
+        pg.click('#btn-replay'); pg.wait_for_timeout(500); r = st(pg); check(r['playing'] and r['u'] < 0.2, 'Replay restarts and plays')
+        pg.click('#btn-play'); check(not st(pg)['playing'], 'Pause pauses')
+        pg.evaluate("() => { const i = document.querySelector('#sage-scrub'); i.value = 500; i.dispatchEvent(new Event('input', {bubbles:true})); }"); pg.wait_for_timeout(300)
+        mid = st(pg); check(0 < mid['nodes'] - 30 < 618 and abs(mid['s'] - 0.5) < 1e-6, f'SAGE scrub holds a mid-transition state (nodes {mid["nodes"]})')
+        pg.evaluate("window.__sage.setS(0)")
+        # no GPU resource growth after warm-up
+        pg.click('#btn-replay'); pg.wait_for_timeout(1500); m_a = st(pg)['mem']
+        for kv in [('batch', 20000), ('depth', 6), ('width', 64), ('pdeOrder', 3), ('depth', 4), ('width', 128), ('pdeOrder', 2), ('batch', 4096)]: pg.evaluate(f"window.__sage.knobs.set('{kv[0]}', {kv[1]})"); pg.wait_for_timeout(150)
+        pg.click('#sage-btn'); pg.wait_for_timeout(2500); pg.click('#sage-btn'); pg.wait_for_timeout(2500); pg.click('#btn-replay'); pg.wait_for_timeout(1500)
+        m_b = st(pg)['mem']; check(m_a == m_b, f'no geometry/texture growth after warm-up {m_a} -> {m_b}')
+        check(pg.evaluate('document.documentElement.scrollWidth <= innerWidth && document.documentElement.scrollHeight <= innerHeight'), '1280x720: no page overflow')
+        bt = pg.evaluate("(() => { const r = document.querySelector('#sage-btn').getBoundingClientRect(); return r.top >= 0 && r.bottom <= innerHeight && r.right <= innerWidth && r.width >= 150 && r.height >= 40; })()"); check(bt, '1280x720: big SAGE button fully visible')
+        check(not pg.errors, 'http desktop: zero console errors/warnings ' + str(pg.errors[:3])); check(not pg.external, 'http desktop: no external requests ' + str(pg.external[:3]))
+        # screenshots (desktop)
+        def shot(pg, name, u, s):
+            pg.evaluate(f'window.__sage.setS({s}); window.__sage.setU({u})'); pg.wait_for_timeout(1200); pg.screenshot(path=str(shots / name))
+        for tag, page in [('desktop', pg)]:
+            shot(page, f'{tag}_baseline.png', 0.0, 0); shot(page, f'{tag}_mid_forward.png', 0.2, 0); shot(page, f'{tag}_mid_backward.png', 0.5, 0)
+            shot(page, f'{tag}_sage_mid.png', 0.5, 0.5); shot(page, f'{tag}_sage_final.png', 0.5, 1.0)
+        pg.context.close()
+
+        # ---------- mobile over http ----------
+        pg = open_page(b, f'http://127.0.0.1:{port}/demo/index.html', 390, 844, 'mobile', is_mobile=True, has_touch=True, device_scale_factor=2)
+        check(pg.evaluate('document.documentElement.scrollWidth <= innerWidth && document.documentElement.scrollHeight <= innerHeight'), '390x844: no page overflow')
+        bt = pg.evaluate("(() => { const r = document.querySelector('#sage-btn').getBoundingClientRect(); return r.top >= 0 && r.bottom <= innerHeight && r.right <= innerWidth && r.width >= 120; })()"); check(bt, '390x844: SAGE button fully visible')
+        check(pg.evaluate("document.querySelector('#knob-panel').classList.contains('collapsed')"), '390x844: knob panel starts collapsed')
+        for name, u, s in [('baseline', 0.0, 0), ('mid_forward', 0.2, 0), ('mid_backward', 0.5, 0), ('sage_mid', 0.5, 0.5), ('sage_final', 0.5, 1.0)]: shot(pg, f'mobile_{name}.png', u, s)
+        pg.click('#knob-toggle'); pg.wait_for_timeout(500); pg.screenshot(path=str(shots / 'mobile_knobs_open.png'))
+        check(not pg.errors, 'http mobile: zero console errors/warnings ' + str(pg.errors[:3]))
+        pg.context.close()
+
+        # ---------- reduced motion ----------
+        pg = open_page(b, f'http://127.0.0.1:{port}/demo/index.html', 1280, 720, 'rm', reduced_motion='reduce')
+        s = st(pg); check(s['reduced'] and not s['playing'], 'reduced motion: starts paused')
+        pg.click('#sage-btn'); pg.wait_for_timeout(500); s = st(pg); check(s['s'] == 1 and s['nodes'] == 30, 'reduced motion: SAGE applies without animation')
+        check(not pg.errors, 'reduced motion: zero console errors'); pg.context.close()
+
+        # ---------- single-file bundle over file:// ----------
+        pg = open_page(b, bundle.as_uri(), 1280, 720, 'file')
+        toggle_sequence(pg, 'file')
+        check(not pg.errors, 'file:// bundle: zero console errors/warnings ' + str(pg.errors[:3])); check(not pg.external, 'file:// bundle: no network requests ' + str(pg.external[:3]))
+        pg.context.close()
+    finally:
+        srv.terminate(); b.close()
+
+print('PASS' if not fails else 'FAILED %d: %s' % (len(fails), '; '.join(fails)))
+sys.exit(1 if fails else 0)

@@ -37,7 +37,7 @@ def main():
             continue
     if srv is None:
         print('Could not bind any port.'); return 2
-    url = 'http://127.0.0.1:%d/index.html' % srv.server_address[1]
+    url = 'http://127.0.0.1:%d/demo/index.html' % srv.server_address[1]
     print('SAGE demo running at ' + url + '\nPress Ctrl+C to stop.')
     if not a.no_browser:
         threading.Timer(0.6, lambda: webbrowser.open(url)).start()

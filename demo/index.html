@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>SAGE demo</title>
+<meta name="description" content="One PINN training step for a heat sink on a battery pack, and what SAGE removes from the backward pass.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 16 16%27%3E%3Ccircle cx=%278%27 cy=%278%27 r=%276%27 fill=%27%232fd0e6%27/%3E%3C/svg%3E">
+<link rel="stylesheet" href="css/style.css">
+<script type="importmap">
+{ "imports": {
+  "three": "../vendor/three/build/three.module.js",
+  "three/addons/": "../vendor/three/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<canvas id="stage" aria-label="3D scene: heat sink on a battery pack, sampled points, neural network, output, autograd graphs"></canvas>
+
+<header id="hud-top">
+  <div class="stat"><span>Memory</span><b id="r-mem">-</b></div>
+  <div class="stat"><span>Step time</span><b id="r-time">-</b></div>
+  <div class="stat"><span>Graph nodes</span><b id="r-nodes">-</b></div>
+  <div class="stat"><span>Backward matmuls</span><b id="r-mm">-</b></div>
+  <div class="tag">model estimate, illustrative<small class="meas">Measured (Oct deck): ~50x per step, 303 ms to 6.1 ms</small></div>
+</header>
+
+<aside id="knob-panel" aria-label="Knobs">
+  <button id="knob-toggle" type="button" aria-expanded="true">Knobs <i aria-hidden="true"></i></button>
+  <div class="knob-body"></div>
+</aside>
+
+<div id="legend" aria-hidden="true">
+  <span><i style="background:#4a90e2"></i>weights</span><span><i style="background:#3ab795"></i>activations</span><span><i style="background:#f08a24"></i>gradients</span>
+  <span><i style="background:#9b6bd6"></i>optimizer</span><span><i style="background:#e0408a"></i>physics</span><span><i style="background:#2fd0e6"></i>SAGE</span>
+  <em>node size = saved memory, glow = compute</em>
+  <span class="hint">Drag to orbit, scroll to zoom. Space: play/pause. S: SAGE.</span>
+</div>
+
+<footer id="hud-bottom">
+  <div class="transport">
+    <button id="btn-play" type="button">Pause</button>
+    <button id="btn-replay" type="button">Replay</button>
+    <input id="scrub" type="range" min="0" max="1000" value="0" aria-label="Scrub the training step">
+    <span id="phase" aria-live="off"></span>
+  </div>
+  <div class="sage">
+    <button id="sage-btn" type="button" aria-pressed="false"><span>SAGE</span><b id="sage-state">OFF</b></button>
+    <input id="sage-scrub" type="range" min="0" max="1000" value="0" aria-label="SAGE transition">
+  </div>
+</footer>
+<noscript>This demo needs JavaScript.</noscript>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>

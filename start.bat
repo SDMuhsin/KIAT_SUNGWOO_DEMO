@@ -21,7 +21,7 @@ if %errorlevel%==0 (
 where npx >nul 2>nul
 if %errorlevel%==0 (
   echo Python not usable; trying "npx serve" ^(needs internet the first time^)...
-  start "" "http://localhost:8000/index.html"
+  start "" "http://localhost:8000/demo/index.html"
   npx --yes serve -l 8000 .
   goto :done
 )
@@ -32,7 +32,7 @@ echo  Could not start a local server: no Python 3 and no Node.js.
 echo  Options:
 echo    1. Install Python 3 from https://www.python.org/downloads/
 echo       (tick "Add python.exe to PATH") and run start.bat again.
-echo    2. No install needed: double-click  dist\sage-demo.html
+echo    2. No install needed: double-click  demo\sage-demo.html
 echo       (single self-contained file, works offline).
 echo ============================================================
 pause

@@ -9,9 +9,9 @@ for py in python3 python; do
 done
 if command -v npx >/dev/null 2>&1; then
   echo "Python 3 not found; trying npx serve (needs internet the first time) ..."
-  URL="http://localhost:8000/index.html"
+  URL="http://localhost:8000/demo/index.html"
   (sleep 2; (xdg-open "$URL" || open "$URL") >/dev/null 2>&1) &
   exec npx --yes serve -l 8000 .
 fi
-echo "No Python 3 and no Node.js found. Install Python 3, or open dist/sage-demo.html directly (single file, offline)."
+echo "No Python 3 and no Node.js found. Install Python 3, or open demo/sage-demo.html directly (single file, offline)."
 exit 1

@@ -1,47 +1,5 @@
 <!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>SAGE demo</title>
-<meta name="description" content="Interactive 3D walkthrough of PINN training cost and the SAGE gradient engine.">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 16 16%27%3E%3Ccircle cx=%278%27 cy=%278%27 r=%276%27 fill=%27%232fd0e6%27/%3E%3C/svg%3E">
-<link rel="stylesheet" href="css/style.css">
-<script type="importmap">
-{ "imports": {
-  "three": "./vendor/three/build/three.module.js",
-  "three/addons/": "./vendor/three/examples/jsm/"
-} }
-</script>
-</head>
-<body>
-<canvas id="stage" aria-label="3D scene"></canvas>
-
-<header id="hud-top" class="card">
-  <div class="row"><h1 id="hud-title">Loading...</h1><span id="hud-count" class="count" aria-live="polite"></span></div>
-  <div class="row2"><div id="hud-badges" class="badges" aria-label="Data provenance"></div>
-    <div class="tools"><button id="btn-tour" class="tool-btn" type="button" aria-pressed="false">Auto-tour</button><button id="btn-help" class="tool-btn" type="button" aria-label="Help (? or H)" aria-expanded="false">?</button></div></div>
-</header>
-
-<aside id="knob-panel" class="card empty" aria-label="Controls">
-  <button id="knob-toggle" class="icon-btn" type="button" aria-expanded="true">Controls</button>
-  <div class="knob-body"></div>
-  <div id="hud-readouts" class="readouts" aria-live="polite"></div>
-</aside>
-
-<footer id="hud-bottom" class="card">
-  <div class="bridge"><button id="hud-thumb-btn" class="thumb" type="button" aria-label="Previous view (go back)" hidden><canvas id="hud-thumb" width="128" height="72"></canvas></button><p id="hud-bridge" aria-live="polite"></p></div>
-  <p id="hud-caption"></p>
-  <div class="nav">
-    <button id="btn-prev" class="nav-btn" type="button" aria-label="Previous stage">&larr;</button>
-    <div class="progress" role="group" aria-label="Stages"><div class="bar"><i id="hud-bar"></i></div><div id="hud-dots" class="dots"></div></div>
-    <button id="btn-next" class="nav-btn" type="button" aria-label="Next stage">&rarr;</button>
-  </div>
-  <p class="hint">Keys: &larr; &rarr; Space, Home/End. Drag to orbit. <b>?</b> help, <b>T</b> auto-tour.</p>
-</footer>
-
-<div id="toast" role="status"></div>
-<noscript>This demo needs JavaScript.</noscript>
-<script type="module" src="js/main.js"></script>
-</body>
-</html>
+<html lang="en"><head><meta charset="utf-8"><title>SAGE demo</title>
+<meta http-equiv="refresh" content="0; url=demo/index.html">
+<style>body{background:#0b0f17;color:#e8edf5;font:16px system-ui,sans-serif;padding:2em}a{color:#2fd0e6}</style></head>
+<body><p>Opening the demo... <a href="demo/index.html">demo/index.html</a> (or open <a href="demo/sage-demo.html">demo/sage-demo.html</a>, a single file that needs no server).</p></body></html>
