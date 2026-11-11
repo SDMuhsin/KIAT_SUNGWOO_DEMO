@@ -7,6 +7,7 @@ import * as util from './util.js';
 import { createKnobs } from './knobs.js';
 import { createStageController, STAGES } from './stage.js';
 import { installExtras } from './extras.js';
+import { createCards } from './cards.js';
 
 const $ = (id) => document.getElementById(id);
 const canvas = $('stage');
@@ -60,8 +61,22 @@ for (const id of MODULES) {
   } catch (e) { console.error(`scene module "${id}" failed`, e); hud.toast(`Scene "${id}" failed to load (see console)`); }
 }
 
-const hudEls = { title: $('hud-title'), caption: $('hud-caption'), count: $('hud-count'), bar: $('hud-bar'), prev: $('btn-prev'), next: $('btn-next'), dots: $('hud-dots'), swipe: $('hud-bottom') };
-const controller = createStageController({ ctx, modules, hudEls });
+const hudEls = { title: $('hud-title'), caption: $('hud-caption'), bridge: $('hud-bridge'), count: $('hud-count'), bar: $('hud-bar'), prev: $('btn-prev'), next: $('btn-next'), dots: $('hud-dots'), swipe: $('hud-bottom') };
+
+// "Where you came from" thumbnail (bottom card): a small buffer is refreshed from the settled canvas every ~40 idle frames;
+// on navigation it is copied to the visible thumbnail, so the previous scene stays on screen as a shrunken anchor. Click = go back.
+const thumbBuf = document.createElement('canvas'); thumbBuf.width = 128; thumbBuf.height = 72;
+const thumb = $('hud-thumb'), thumbBtn = $('hud-thumb-btn'); let thumbValid = false, thumbIdle = 0;
+function grabThumb() {
+  try {
+    const g = thumbBuf.getContext('2d'), W = canvas.width, H = canvas.height, k = Math.max(128 / W, 72 / H), w = W * k, h = H * k;
+    g.drawImage(canvas, (128 - w) / 2, (72 - h) / 2, w, h); thumbValid = true;
+  } catch (e) { thumbValid = false; }
+}
+const hooks = { leave() { if (!thumbValid) return; thumb.getContext('2d').drawImage(thumbBuf, 0, 0); thumbBtn.hidden = false; } };
+const cards = createCards();
+const controller = createStageController({ ctx, modules, hudEls, cards, hooks });
+thumbBtn.onclick = () => { if (controller.from >= 0) controller.goTo(controller.from); };
 
 const extras = installExtras({ controller, STAGES, hud });
 
@@ -74,6 +89,7 @@ function loop(now) {
   const t1 = performance.now();
   renderer.render(scene, camera);
   const t2 = performance.now();
+  if (controller.settled) { if (++thumbIdle % 40 === 5) grabThumb(); } else thumbIdle = 0;
   if (rec) { const i = renderer.info; rec.n++; rec.upd += t1 - t0; rec.ren += t2 - t1; rec.max = Math.max(rec.max, t2 - t0); rec.calls += i.render.calls; rec.tris += i.render.triangles; rec.pts += i.render.points; }
   requestAnimationFrame(loop);
 }

@@ -5,7 +5,7 @@ import { createPhysicsGraph } from './physics_graph.js';
 import { makeControls } from './physics_ui.js';
 import { frameBox } from './physics_cam.js';
 
-export const ZONE = { x: 44, y: 0, z: 0 };
+export const ZONE = { x: 4, y: 22, z: 0 };   // directly above the net / derivative tower: stage 9 -> 13 is a vertical climb through the same world
 const SPEED = 6, END_PAD = 7;
 
 export function createGrad(ctx, shared) {
@@ -105,9 +105,9 @@ export function createGrad(ctx, shared) {
     const mob = innerWidth < innerHeight * 0.85, c = ZONE, bA = gA.stats.bounds, bB = gB.stats.bounds;
     if (mob) {
       const yTop = 4.6 + bA.h - bA.H + 2.7, yBot = -3.4 - bB.H - 3.2;
-      return frameBox(THREE, camera, [c.x - 4.5, c.x + 4.5, yBot, yTop, -2.2, 2.2], { az: -14, el: 16, reserve: { top: 72, bottom: 40 } });
+      return frameBox(THREE, camera, [c.x - 4.5, c.x + 4.5, yBot + c.y, yTop + c.y, -2.2, 2.2], { az: -14, el: 16, reserve: { top: 72, bottom: 40 } });
     }
-    return frameBox(THREE, camera, [c.x - 10.2, c.x + 10.2, -bB.H - 3.0, bB.h - bB.H + 2.2, -2.4, 2.4], { az: -12, el: 24, reserve: { top: -26, bottom: 24 } });
+    return frameBox(THREE, camera, [c.x - 10.2, c.x + 10.2, -bB.H - 3.0 + c.y, bB.h - bB.H + 2.2 + c.y, -2.4, 2.4], { az: -12, el: 24, reserve: { top: -26, bottom: 24 } });
   }
   const api = {
     graphStats() { return { supervised: { nodes: gA.stats.nodes, edges: gA.stats.edges, hops: gA.stats.hops }, physics: { nodes: gB.stats.nodes, edges: gB.stats.edges, hops: gB.stats.hops }, version: S.ver }; },

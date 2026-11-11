@@ -26,7 +26,7 @@ try:
             pg.goto(f'http://127.0.0.1:{port}/index.html'); pg.wait_for_function('window.__demo && window.__demo.frames > 5', timeout=60000)
             api = '__demo.ctx.modules.geometry.api'
             def go(stage, wait=4200):
-                pg.evaluate(f"__demo.controller.goTo('{stage}')"); pg.wait_for_timeout(wait)
+                pg.evaluate(f"__demo.controller.goTo('{stage}')"); pg.wait_for_function('__demo.controller.settled', timeout=90000); pg.wait_for_timeout(wait)
             pg.wait_for_timeout(3000); pg.screenshot(path=str(shots / f'{tag}-1-geometry.png'))
             r = pg.evaluate('__demo.ctx.state.reveal'); check(r['sampling.interior'] < 0.01, f'{tag}: sampling hidden at stage 1')
             go('sampling', 1300); pg.screenshot(path=str(shots / f'{tag}-2a-emerge.png')); pg.wait_for_timeout(1700); pg.screenshot(path=str(shots / f'{tag}-2c-lifting.png')); pg.wait_for_timeout(3500); pg.screenshot(path=str(shots / f'{tag}-2-sampling.png'))

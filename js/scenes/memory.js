@@ -475,7 +475,7 @@ export default function createMemory(ctx) {
   const cam = (box, o) => { const opt = () => o ?? (mobile() ? (box === bndBox ? MOBB : MOB) : { az: -18, el: box === bndBox ? 28 : 18 }); return { get pos() { return frameBox(THREE, ctx.camera, box(), opt()).pos; }, get target() { return frameBox(THREE, ctx.camera, box(), opt()).target; } }; };
   const memBox = () => (mobile() ? [-2.4, 9.2, FLOOR - 0.3, FLOOR + 2.8, -2.2, SHELF_Z0 + 4.4] : [-2.2, 8.8, FLOOR - 0.5, 1.9, -2.2, SHELF_Z0 + 4.2]);
   const MOB = { az: -32, el: 42 }, MOBB = { az: -75, el: 55 };
-  const bndBox = () => [P.xL - 2.4, P.xO + 1.2, PF - 0.4, PF + P.wallH + 0.9, P.wallZ - 0.3, P.bar.z + 2.8];
+  const bndBox = () => (mobile() ? [P.xL - 2.4, P.xO + 1.2, PF - 0.4, PF + P.wallH + 0.9, P.wallZ - 0.3, P.bar.z + 2.8] : [P.xL - 2.8, P.xO + 1.6, PF - 0.4, FLOOR + 2.2, P.wallZ - 0.3, SHELF_Z0 + 4.2]);   // desktop: plot AND the memory blocks above it stay in view
   const handler = (extra) => ({ enter() { subNet(); S.readKey = ''; S.dirty = true; extra?.enter?.(); }, exit() { extra?.exit?.(); }, update: tick, ...(extra?.rest ?? {}) });
   const stages = {
     'memory-fwd': handler({ rest: { camera: cam(memBox) } }),

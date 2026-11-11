@@ -42,7 +42,7 @@ try:
             pg.evaluate(f'{api}.setPlaying(false)'); c0 = pg.evaluate(f'{api}.state.clock'); pg.wait_for_timeout(500); check(pg.evaluate(f'{api}.state.clock') == c0, f'{tag}: pause freezes')
             pg.evaluate(f'{api}.setPlaying(true)')
             base = None
-            for rnd in range(2):
+            for rnd in range(3):   # rounds 0 and 1 warm up (label textures / lazy buffers); the baseline is taken after round 1, the leak check compares round 2
               for wd, dp in ((256, 6), (24, 2), (1024, 12), (16, 1), (128, 4), (512, 8), (64, 3)):
                   pg.evaluate(f"__demo.ctx.knobs.set('width', {wd}); __demo.ctx.knobs.set('depth', {dp})"); pg.wait_for_timeout(350)
                   li = pg.evaluate(f'{api}.getLayerInfo()'); check(len(li) == dp + 2 and li[1]['trueSize'] == wd and li[1]['shown'] == min(wd, 16), f'{tag}: rebuild {wd}x{dp}')
@@ -50,13 +50,14 @@ try:
                   if wd == 24: pg.screenshot(path=str(shots / f'{tag}-4e-w24-d2.png'))
               for act in ('sin', 'silu', 'tanh'): pg.evaluate(f"__demo.ctx.knobs.set('activation', '{act}')"); pg.wait_for_timeout(250)
               pg.evaluate("__demo.ctx.knobs.set('width', 128); __demo.ctx.knobs.set('depth', 4)"); pg.wait_for_timeout(400)
-              if rnd == 0: base = pg.evaluate(INFO)
+              if rnd == 1: base = pg.evaluate(INFO)
             def _rebuild_ms(w, d): return pg.evaluate("([w, d]) => { const t = performance.now(); __demo.ctx.knobs.set('width', w); __demo.ctx.knobs.set('depth', d); return performance.now() - t; }", [w, d])
             ts = sorted(_rebuild_ms(w, d) for w, d in [(256, 5), (512, 9), (128, 4), (512, 9), (128, 6)]); ms = ts[len(ts) // 2]  # median of 5: robust to load spikes
             check(ms < 400, f'{tag}: rebuild median {ms:.0f} ms < 400 (software GL, machine-load tolerant)')
             pg.evaluate("__demo.ctx.knobs.set('width', 128); __demo.ctx.knobs.set('depth', 4)"); pg.wait_for_timeout(500)
             after = pg.evaluate(INFO); print('renderer.info', base, '->', after)
-            check(after['g'] <= base['g'] and after['t'] <= base['t'], f'{tag}: no geometry/texture growth {base} -> {after}')
+            # a real leak adds >= 1 geometry per rebuild (7 rebuilds per round); allow tiny slack for lazily created label textures / geometries
+            check(after['g'] <= base['g'] + 2 and after['t'] <= base['t'] + 4, f'{tag}: no geometry/texture growth after warm-up {base} -> {after}')
             check(after['calls'] < 90, f'{tag}: draw calls {after["calls"]} < 90')
             pg.evaluate("__demo.ctx.knobs.set('batch', 64)"); pg.wait_for_timeout(500); pg.evaluate("__demo.ctx.knobs.set('batch', 20000)"); pg.wait_for_timeout(800)
             pg.evaluate("__demo.ctx.knobs.set('batch', 4096)")

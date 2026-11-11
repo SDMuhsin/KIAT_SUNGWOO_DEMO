@@ -34,7 +34,7 @@ try:
             return pg
         pg = newpage(1280, 720); url = f'http://127.0.0.1:{port}/index.html'
         pg.goto(url); pg.wait_for_function('window.__demo && window.__demo.frames > 5', timeout=60000)
-        n = pg.evaluate('__demo.STAGES.length'); check(n == 15, f'15 stages (got {n})')
+        n = pg.evaluate('__demo.STAGES.length'); check(n == 20, f'20 slides (got {n})')
         parts_by_stage = pg.evaluate('__demo.STAGES.map(s=>s.parts)')
         def reveal_ok(i, tag):
             r = pg.evaluate('__demo.ctx.state.reveal'); bad = []
@@ -43,20 +43,27 @@ try:
                     want = 1 if k <= i else 0
                     if abs(r[part] - want) > 0.02: bad.append((part, r[part], want))
             check(not bad, f'{tag}: reveal gating at stage {i} {bad[:2]}')
-        def idx(): return pg.evaluate('__demo.ctx.state.stageIndex')
+        def idx(): return pg.evaluate('__demo.controller.index')
+        def settled(): pg.wait_for_function('__demo.controller.settled', timeout=90000)
+        SID = pg.evaluate('__demo.STAGES.map(s=>s.id)'); IX = {k: v for v, k in enumerate(SID)}
         pg.wait_for_timeout(int(args.settle * 1000)); reveal_ok(0, 'initial')
         pg.screenshot(path=str(shots / 'fwd-01.png'))
         for i in range(1, n):
             pg.keyboard.press('ArrowRight' if i % 2 else 'Space') if i < 3 else pg.click('#btn-next')
-            pg.wait_for_timeout(int(args.settle * 1000)); check(idx() == i, f'forward -> {i}')
-            reveal_ok(i, 'fwd'); pg.screenshot(path=str(shots / f'fwd-{i+1:02d}.png'))
+            settled(); pg.wait_for_timeout(int(args.settle * 1000)); check(idx() == i, f'forward -> {i}')
+            reveal_ok(i, 'fwd')
+            isc = pg.evaluate(f'__demo.STAGES[{i}].kind === "card"'); eff = pg.evaluate('__demo.ctx.state.stageIndex')
+            check(pg.is_visible('#card-panel') == isc, f'card panel visible iff slide {i} is a card')
+            if isc: check(eff == i - 1, f'card {i} keeps the previous 3D stage live (eff {eff})')
+            check(len(pg.inner_text('#hud-bridge')) > 10, f'bridge caption at {i}')
+            pg.screenshot(path=str(shots / f'fwd-{i+1:02d}.png'))
             check(pg.inner_text('#hud-count') == f'{i+1} / {n}', f'progress text {i+1}')
         check(pg.is_disabled('#btn-next'), 'next disabled at end')
         for i in range(n - 2, -1, -1):
-            pg.keyboard.press('ArrowLeft'); pg.wait_for_timeout(1800); check(idx() == i, f'back -> {i}')
-            if i in (13, 7, 0): reveal_ok(i, 'back'); pg.screenshot(path=str(shots / f'back-{i+1:02d}.png'))
+            pg.keyboard.press('ArrowLeft'); settled(); pg.wait_for_timeout(1800); check(idx() == i, f'back -> {i}')
+            if i in (IX['sage-jax'], IX['bounds'], IX['roofline-primer'], 0): reveal_ok(i, 'back'); pg.screenshot(path=str(shots / f'back-{i+1:02d}.png'))
         # dots + hash
-        pg.click('#hud-dots button:nth-child(7)'); pg.wait_for_timeout(300); check(idx() == 6 and pg.evaluate('location.hash') == '#stage=bounds', 'dot click sets stage + hash')
+        pg.click(f"#hud-dots button:nth-child({IX['bounds'] + 1})"); pg.wait_for_timeout(300); check(idx() == IX['bounds'] and pg.evaluate('location.hash') == '#stage=bounds', 'dot click sets stage + hash'); settled(); pg.wait_for_timeout(600)
         # knob panel: bounds stage shows 6 knobs; moving slider updates knob + live readout
         check(pg.locator('#knob-panel .knob').count() == 6, 'bounds stage shows 6 knobs')
         before = pg.evaluate("__demo.ctx.knobs.get('width')"); pg.locator('#knob-width').fill('900'); pg.wait_for_timeout(200)
@@ -66,7 +73,7 @@ try:
         check(pg.locator('#hud-badges .badge').count() >= 1, 'badges shown')
         pg.close(); pg = newpage(1280, 720)
         pg.goto(url + '#stage=sage-jax'); pg.wait_for_function('window.__demo && window.__demo.frames > 5'); pg.wait_for_timeout(500)
-        check(idx() == 13, 'hash deep link -> sage-jax'); reveal_ok(13, 'deeplink')
+        check(idx() == IX['sage-jax'], 'hash deep link -> sage-jax'); reveal_ok(IX['sage-jax'], 'deeplink')
         check(pg.locator('#knob-sageHalf').count() == 1, 'toggle knob rendered')
         for w, h, tag in ((1280, 720, 'desk'), (390, 844, 'mobile')):
             q = newpage(w, h); q.goto(url + '#stage=backward'); q.wait_for_function('window.__demo && window.__demo.frames > 5'); q.wait_for_timeout(800)

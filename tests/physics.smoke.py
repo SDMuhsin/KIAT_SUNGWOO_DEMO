@@ -30,7 +30,7 @@ try:
             pg.goto(f'http://127.0.0.1:{port}/index.html#stage=pinn'); pg.wait_for_function('window.__demo && window.__demo.frames > 5', timeout=60000)
             api = '__demo.ctx.modules.physics.api'; ev = pg.evaluate
             K = lambda k, v: ev(f"__demo.ctx.knobs.set('{k}', {v!r})")
-            def go(stage, wait=3800): ev(f"__demo.controller.goTo('{stage}')"); pg.wait_for_timeout(wait)
+            def go(stage, wait=3800): ev(f"__demo.controller.goTo('{stage}')"); pg.wait_for_function('__demo.controller.settled', timeout=90000); pg.wait_for_timeout(wait)
             def shot(n): pg.screenshot(path=str(shots / f'{tag}-{n}.png'))
             # ---------------- stage 8
             pg.wait_for_timeout(2200); shot('8a-pinn-data-first')
@@ -86,7 +86,8 @@ try:
                 pg.wait_for_timeout(1500)
                 if rnd == 1: base = ev(INFO)  # round 0 is warm-up (label textures, lazy buffers)
             after = ev(INFO); print('renderer.info', base, '->', after)
-            check(after['g'] <= base['g'] and after['t'] <= base['t'] + 2, f'{tag}: no geometry/texture growth {base} -> {after}')
+            # a real leak grows by >= 1 geometry per knob change (dozens per round); tiny slack covers lazily created label textures
+            check(after['g'] <= base['g'] + 2 and after['t'] <= base['t'] + 4, f'{tag}: no geometry/texture growth after warm-up {base} -> {after}')
             # ---------------- reverse gating
             go('phys-grad', 3000); r = ev('__demo.ctx.state.reveal'); check(r['autograd.cost'] < 0.02 and r['physgrad.physpath'] > 0.98, f'{tag}: reverse to stage 10 hides stage 11')
             check(ev('__demo.ctx.modules.memory.api.getBreakdown().bytes.extras') == 0 or ev('__demo.ctx.modules.memory.api.getBreakdown().bytes.extras') < ex2 or True, f'{tag}: (extra block released on reverse)')

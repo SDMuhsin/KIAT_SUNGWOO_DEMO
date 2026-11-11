@@ -1,5 +1,5 @@
 // sage_kit.js - shared helpers of the SAGE scenes: allocation-free instanced boxes, sprite-label helper, injected CSS, world zones.
-export const ZONES = { idea: [0, 0, -60], overhead: [0, 0, -120], jax: [0, 0, -180] }; // each stage lives in its own zone, far from the main world
+export const ZONES = { idea: [4, 44, 0], overhead: [4, 66, 0], jax: [4, 88, 0] }; // stacked above the physics zone (y=22): the camera climbs one continuous column of space, nothing is far away
 
 const CSS = `
 .sg-panel{position:fixed;z-index:4;font-size:12px;line-height:1.35;color:#e8edf5;overflow:auto}

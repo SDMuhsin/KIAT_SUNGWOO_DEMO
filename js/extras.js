@@ -12,8 +12,10 @@ export function installExtras({ controller, STAGES, hud }) {
     ['&rarr; / Space / PgDn', 'next stage'], ['&larr; / Shift+Space / PgUp', 'previous stage'], ['Home / End', 'first / last stage'],
     ['T', 'auto-tour on / off (every ~12 s; pauses on any interaction)'], ['? or H', 'show / hide this help'], ['Esc', 'close help'],
     ['Drag / right-drag / wheel', 'orbit / pan / zoom the 3D scene (touch: 1 finger orbit, 2 fingers pan + zoom)'],
+    ['Round dots / square dots', 'round = 3D stage, square = a short 2D explainer card shown over the dimmed scene before a harder stage'],
+    ['Thumbnail (bottom card)', 'the view you just left; click it to go back. The yellow line says what came last and why we moved on'],
     ['Sliders (right panel)', 'change the knobs; the scene updates live'], ['Dots / swipe bottom card', 'jump to a stage / swipe left-right'],
-    ['URL #stage=pinn', 'deep link to a stage (ids: ' + STAGES.map((s) => s.id).join(', ') + ')'],
+    ['URL #stage=pinn', 'deep link to a stage or card (ids: ' + STAGES.map((s) => s.id).join(', ') + ')'],
   ];
   help.innerHTML = '<div class="help-card"><h2>Controls</h2><table>' + rows.map(([k, d]) => `<tr><th>${k}</th><td>${d}</td></tr>`).join('') +
     '</table><p class="help-legend"><span class="badge illustrative">illustrative</span> layout/synthetic visuals &nbsp; <span class="badge estimate">model estimate</span> analytic cost model &nbsp; <span class="badge projected">projected</span> not measured</p>' +

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Packaging smoke:  python tests/package.smoke.py [--quick]
- 1. vendored/offline: serves the repo over http, ABORTS every non-local request, walks all 15 stages, zero console errors,
+ 1. vendored/offline: serves the repo over http, ABORTS every non-local request, walks all 20 stages, zero console errors,
     zero attempted external requests.
- 2. builds dist/sage-demo.html (tools/build_single.py) and loads it via file:// (no server), network blocked, walks all 15
+ 2. builds dist/sage-demo.html (tools/build_single.py) and loads it via file:// (no server), network blocked, walks all 20
     stages, zero console errors, WebGL canvas rendering, no <script type=module>/importmap in the file.
 Works on Windows/macOS/Linux with `pip install playwright` + `playwright install chromium`."""
 import argparse, subprocess, sys, pathlib
@@ -36,12 +36,12 @@ def walk(b, url, tag):
     pg.on('pageerror', lambda e: errors.append(str(e)))
     pg.on('requestfailed', lambda r: errors.append('requestfailed ' + r.url))
     pg.goto(url); pg.wait_for_function('window.__demo && window.__demo.frames > 5', timeout=90000)
-    n = pg.evaluate('__demo.STAGES.length'); check(n == 15, f'{tag}: 15 stages')
+    n = pg.evaluate('__demo.STAGES.length'); check(n == 20, f'{tag}: 20 slides')
     seen = []
     for i in range(n):
         if i: pg.keyboard.press('ArrowRight')
         pg.wait_for_timeout(int(args.settle * 1000))
-        seen.append(pg.evaluate('__demo.ctx.state.stageIndex'))
+        pg.wait_for_function('__demo.controller.settled', timeout=90000); seen.append(pg.evaluate('__demo.controller.index'))
         if args.quick and i > 4: break
     check(seen == list(range(len(seen))), f'{tag}: walked stages {seen[0]}..{seen[-1]}')
     check(pg.evaluate('__demo.renderer.info.render.calls') > 5, f'{tag}: renderer drawing')
@@ -52,7 +52,7 @@ def walk(b, url, tag):
     pg.keyboard.press('Escape'); pg.wait_for_timeout(150); check(not pg.is_visible('#help'), f'{tag}: Esc closes help')
     pg.keyboard.press('h'); pg.wait_for_timeout(100); check(pg.is_visible('#help'), f'{tag}: H opens help'); pg.keyboard.press('h')
     pg.evaluate('__demo.extras.setTour(true)'); pg.wait_for_timeout(13500)
-    check(pg.evaluate('__demo.ctx.state.stageIndex') == 1, f'{tag}: auto-tour advanced one stage after ~12 s')
+    check(pg.evaluate('__demo.controller.index') == 1, f'{tag}: auto-tour advanced one stage after ~12 s')
     pg.mouse.click(600, 300); pg.wait_for_timeout(200); check(pg.evaluate('__demo.extras.tour.paused'), f'{tag}: interaction pauses auto-tour')
     pg.evaluate('__demo.extras.setTour(false)')
     pg.evaluate('__demo.controller.goTo(3); __demo.controller.goTo(0)'); pg.wait_for_timeout(2500)

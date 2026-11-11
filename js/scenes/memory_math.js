@@ -12,7 +12,7 @@ export const ASSUMPTIONS = {
 
 /** Volume per byte (world units^3) at zoom step 0, and the zoom quantum (volume ratio between steps). */
 export const NU_REF = 2.2e-6;
-/** Floor height of the memory blocks (world y); the roofline plot has its own floor (PLOT.floorY) far below so the two never overlap. */
+/** Floor height of the memory blocks (world y); the roofline plot has its own floor (PLOT.floorY) just below, so the two never overlap but both fit in one view. */
 export const MEM_FLOOR = -5.6;
 export const STEP = 4;
 export const nuOf = (n) => NU_REF / Math.pow(STEP, n);
@@ -61,7 +61,7 @@ export const OPS = [
 ];
 
 /** Plot geometry (world units). x = log10 arithmetic intensity; back wall y = log10 attained FLOP/s; lanes in z. */
-export const PLOT = { xL: -1.2, xR: 9.0, floorY: -30.0, laneZ0: 1.9, laneDz: 0.72, bar: { z: 3.9 }, xO: 10.0, wallZ: -2.9, wallH: 3.7, aiLo: -1, aiHi: 3, perfLo: 10, perfHi: 14.8, hMax: 3.2 };
+export const PLOT = { xL: -1.2, xR: 9.0, floorY: -12.5, laneZ0: 1.9, laneDz: 0.72, bar: { z: 3.9 }, xO: 10.0, wallZ: -2.9, wallH: 3.7, aiLo: -1, aiHi: 3, perfLo: 10, perfHi: 14.8, hMax: 3.2 };
 export const xOfAI = (ai) => PLOT.xL + (Math.min(PLOT.aiHi, Math.max(PLOT.aiLo, Math.log10(Math.max(1e-9, ai)))) - PLOT.aiLo) / (PLOT.aiHi - PLOT.aiLo) * (PLOT.xR - PLOT.xL);
 export const yOfPerf = (flopsPerS) => PLOT.floorY + (Math.min(PLOT.perfHi, Math.max(PLOT.perfLo, Math.log10(Math.max(1, flopsPerS)))) - PLOT.perfLo) / (PLOT.perfHi - PLOT.perfLo) * PLOT.wallH;
 export const laneZ = (lane) => PLOT.laneZ0 - lane * PLOT.laneDz;

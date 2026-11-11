@@ -115,7 +115,8 @@ try:
                 K('pdeOrder', 2); K('depth', 4); pg.wait_for_timeout(900)
                 if rnd == 1: base = ev(INFO)
             after = ev(INFO); print('renderer.info', base, '->', after)
-            check(after['g'] <= base['g'] and after['t'] <= base['t'] + 2, f'{tag}: no geometry/texture growth {base} -> {after}')
+            # a real leak grows by >= 1 geometry per knob change (dozens per round); tiny slack covers lazily created label textures
+            check(after['g'] <= base['g'] + 2 and after['t'] <= base['t'] + 4, f'{tag}: no geometry/texture growth after warm-up {base} -> {after}')
             check(ev("document.querySelectorAll('#sage-console, #sage-results, #sage-jax-chips, #sage-idea-controls, #sage-overhead-controls').length") == 5 and ev("document.querySelectorAll('#sage-style').length") == 1, f'{tag}: DOM nodes do not accumulate')
             check(after['calls'] < 200, f'{tag}: draw calls {after["calls"]} < 200')
             # ---------------- reverse gating

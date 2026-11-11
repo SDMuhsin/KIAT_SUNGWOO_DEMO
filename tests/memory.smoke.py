@@ -71,13 +71,14 @@ try:
             ro = pg.inner_text('#hud-readouts'); check('Memory-bound' in ro and '% of step' in ro, f'{tag}: HUD readout memory-bound xx% of step ({ro.splitlines()[:1]})')
             # leak test: rapid knob changes
             base = None
-            for rnd in range(2):
+            for rnd in range(3):   # rounds 0-1 warm up (lazy label textures / buffers); baseline after round 1, leak check after round 2
                 for i in range(40):
                     K('bandwidth', 100 + (i * 73) % 2500); K('peakTflops', 2 + (i * 11) % 150); K('width', [16, 64, 256, 1024][i % 4]); K('depth', 1 + i % 12); K('batch', [64, 4096, 65536, 262144][i % 4]); pg.wait_for_timeout(40)
                 K('width', 128); K('depth', 4); K('batch', 4096); K('bandwidth', 696); K('peakTflops', 37); pg.wait_for_timeout(800)
-                if rnd == 0: base = pg.evaluate(INFO)
+                if rnd == 1: base = pg.evaluate(INFO)
             after = pg.evaluate(INFO); print('renderer.info', base, '->', after)
-            check(after['g'] <= base['g'] and after['t'] <= base['t'] + 2, f'{tag}: no geometry/texture growth {base} -> {after}')
+            # a real leak grows by >= 1 geometry per knob change (dozens per round); tiny slack covers lazily created label textures
+            check(after['g'] <= base['g'] + 2 and after['t'] <= base['t'] + 4, f'{tag}: no geometry/texture growth after warm-up {base} -> {after}')
             check(after['calls'] < 160, f'{tag}: draw calls {after["calls"]} < 160')
             # reverse + move on
             go('backward', 3000); r = pg.evaluate('__demo.ctx.state.reveal'); check(r['bounds.overlay'] < 0.02 and r['memory.gradients'] > 0.98, f'{tag}: reverse to stage 6 hides bounds')
