@@ -5,7 +5,7 @@
 //   createGraph(THREE, variant, origin) builds the GPU objects once (fixed capacity, instanced) and uploads on rebuild().
 import { layerDims, linearLayers, towerFactor, autogradGraph, memoryBreakdown, resRatio } from './model.js';
 
-export const GR = { x0: -8, x1: 3.6, cap: 3600, edgeCap: 9600 };
+export const GR = { x0: -8, x1: 3.6, cap: 6400, edgeCap: 20000 };
 const REF_BYTES = 4096 * 128 * 4, REF_FLOPS = 2 * 4096 * 128 * 128;
 const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
 const hash = (n) => { const s = Math.sin(n * 127.1 + 311.7) * 43758.5453; return s - Math.floor(s); };

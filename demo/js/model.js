@@ -18,11 +18,26 @@ export const DEFAULTS = {
   batch: 4096, width: 128, depth: 4, // depth = number of HIDDEN layers; linear layers L = depth + 1
   inDim: 3, outDim: 4, precision: 'fp32',
   bandwidthGBs: 696, peakTflops: 37,
-  pdeOrder: 2, nResiduals: 4,
+  pdeOrder: 2, nResiduals: 4, // nResiduals = number of governing equations (knob "equations"); 4 = incompressible NS (see EQUATION_SETS)
   resPoints: 4096, // physics (residual) collocation points per step; batch = data points per step
   adam: true, lambda: 1, // Adam on/off; physics loss weight (visual only: no effect on cost)
   sageHalf: false, sageSinglePass: false,
 };
+
+/**
+ * ILLUSTRATIVE equation sets for the "equations" knob (value n = the first n of this list; NOT from the decks):
+ * 1 continuity | 2 +x-momentum | 3 +y-momentum | 4 +z-momentum (incompressible NS, default) | 5 +k | 6 +epsilon (RANS k-epsilon) | 7 +energy (conjugate heat transfer).
+ * Fields beyond the 4 network outputs (u,v,w,p) each add one network output (k, epsilon, T), so equations > 4 widen the output layer.
+ */
+export const EQUATION_SETS = ['continuity', 'x-momentum', 'y-momentum', 'z-momentum (incompressible NS)', 'k (turbulent kinetic energy)', 'epsilon (RANS k-epsilon)', 'energy (heat transfer)'];
+
+/**
+ * SAGE added-cost ASSUMPTIONS (model estimates, not measurements; the decks give no per-item sizes). Do not present as measured.
+ *  tapePerEq 10 entries/equation (4 equations ~ the "tape ~40 entries" of the decks); tapeBytes 64 B/entry; codeBytesPerEq 2 KB compiled straight-line code per equation;
+ *  diffMatrix: fixed spectral differentiation matrices, inDim x 64x64 fp32 (a DT-PINN prerequisite, independent of the batch, built ONCE);
+ *  extra pass: one no-grad forward + closed-form PDE evaluation over the residual points that writes v (priced with the same roofline as the main forward).
+ */
+export const ASSUMPTIONS = { tapePerEq: 10, tapeBytes: 64, codeBytesPerEq: 2048, diffN: 64, diffBytes: 4 };
 
 /** Merge partial cfg over DEFAULTS. All other functions call this, so you can pass partial objects. */
 export function normalize(cfg = {}) { return { ...DEFAULTS, ...cfg }; }
@@ -34,7 +49,7 @@ export function paramsFromKnobs(get) {
     batch: g('batch', DEFAULTS.batch), width: g('width', DEFAULTS.width), depth: g('depth', DEFAULTS.depth),
     precision: g('precision', DEFAULTS.precision), bandwidthGBs: g('bandwidth', DEFAULTS.bandwidthGBs),
     peakTflops: g('peakTflops', DEFAULTS.peakTflops), pdeOrder: g('pdeOrder', DEFAULTS.pdeOrder),
-    nResiduals: g('nResiduals', DEFAULTS.nResiduals), resPoints: g('resPoints', DEFAULTS.resPoints),
+    nResiduals: g('equations', DEFAULTS.nResiduals), outDim: Math.max(DEFAULTS.outDim, g('equations', DEFAULTS.nResiduals)), resPoints: g('resPoints', DEFAULTS.resPoints),
     adam: g('adam', true) !== false, lambda: g('lambda', 1),
     sageHalf: !!g('sageHalf', false), sageSinglePass: !!g('sageSinglePass', false),
   });
@@ -82,9 +97,9 @@ export function flops(cfg) {
 
 /**
  * Stylised derivative-tower multiplier T = 1 + d * (2^(p+1) - 2): each input dim (d = inDim) needs derivatives of
- * order 1..p, each order roughly doubling the graph. T(d=3,p=2) = 19. A model assumption, not a measurement.
+ * order 1..p, each order roughly doubling the graph. T(d=3,p=2) = 19 at the default 4 equations; the derivative part scales with nResiduals/4 (each equation brings its own derivative branches; illustrative). A model assumption, not a measurement.
  */
-export function towerFactor(cfg) { const c = normalize(cfg); return 1 + c.inDim * (Math.pow(2, c.pdeOrder + 1) - 2); }
+export function towerFactor(cfg) { const c = normalize(cfg); return 1 + Math.round(c.inDim * (Math.pow(2, c.pdeOrder + 1) - 2) * c.nResiduals / DEFAULTS.nResiduals); }
 /** Residual-point ratio rho = resPoints / batch (1 if resPoints is unset). */
 export function resRatio(cfg) { const c = normalize(cfg); return c.resPoints == null ? 1 : c.resPoints / c.batch; }
 /** Effective tower multiplier: only the residual-point fraction pays the derivative tower. T_eff = 1 + (T-1) * rho. */
@@ -143,15 +158,32 @@ export function autogradGraph(cfg, variant = 'physics') {
 }
 
 /**
+ * What SAGE ADDS (model estimates, see ASSUMPTIONS): v = dL/d u-hat (resPoints x outDim values, compute dtype), the built-once derivation + differentiation matrices
+ * (constant, not regenerated per step) and the extra no-grad forward + PDE pass that produces v. Returns {v, vOutputs, builtOnce, tape, extraTime}.
+ */
+export function sageAdded(cfg) {
+  const c = normalize(cfg), A = ASSUMPTIONS, b = dtypeBytes(c.precision), rp = c.resPoints == null ? c.batch : c.resPoints;
+  const v = rp * c.outDim * b, tape = A.tapePerEq * c.nResiduals;
+  const builtOnce = tape * A.tapeBytes + A.codeBytesPerEq * c.nResiduals + c.inDim * A.diffN * A.diffN * A.diffBytes;
+  const cr = { ...c, batch: rp }, mr = memoryBreakdown(cr), fr = flops(cr).fwd;
+  const ph = phase(fr + rp * c.nResiduals * 8, mr.weights + 2 * mr.activations + rp * c.nResiduals * b * 2 + v, c);
+  return { v, vOutputs: c.outDim, builtOnce, tape, extraTime: ph.time };
+}
+
+/**
  * Endpoints of the SAGE toggle for the HUD (all MODEL ESTIMATES): {base, sage} each {memory (bytes), stepTime (s), nodes, matmuls}.
  * base = data graph + physics graph; sage = one ordinary graph (the physics graph is gone, its derivative part is the closed-form v).
  */
 export function sageEndpoints(cfg) {
   const sup = autogradGraph(cfg, 'supervised'), phy = autogradGraph(cfg, 'physics'), sg = autogradGraph(cfg, 'sage');
-  const pc = stepCost(cfg, 'physics'), sc = stepCost(cfg, 'sage');
+  const pc = stepCost(cfg, 'physics'), sc = stepCost(cfg, 'sage'), add = sageAdded(cfg);
+  const baseMem = pc.memory.total - pc.memory.activations + pc.memory.activationsStored;
   return {
-    base: { memory: pc.memory.total - pc.memory.activations + pc.memory.activationsStored, stepTime: pc.total.time, nodes: sup.totalNodes + phy.totalNodes, matmuls: phy.matmuls, bwdTime: pc.bwd.time },
-    sage: { memory: sc.memory.total, stepTime: sc.total.time, nodes: sg.totalNodes, matmuls: sg.matmuls, bwdTime: sc.bwd.time },
+    base: { memory: baseMem, stepTime: pc.total.time, nodes: sup.totalNodes + phy.totalNodes, matmuls: phy.matmuls, bwdTime: pc.bwd.time },
+    // sage.memory / stepTime are NET: plain one-graph step + v + built-once (memory), + the extra no-grad pass (time)
+    sage: { memory: sc.memory.total + add.v + add.builtOnce, stepTime: sc.total.time + add.extraTime, nodes: sg.totalNodes, matmuls: sg.matmuls, bwdTime: sc.bwd.time,
+      memoryPlain: sc.memory.total, stepTimePlain: sc.total.time },
+    added: add, removed: { graphBytes: baseMem - sc.memory.total, nodes: phy.totalNodes, time: pc.total.time - sc.total.time },
   };
 }
 

@@ -12,6 +12,7 @@ export const CORE_KNOBS = [
   { id: 'width', label: 'Layer width', min: 16, max: 1024, step: 8, value: 128, scale: 'log', group: 'Network', help: 'Neurons per hidden layer.' },
   { id: 'depth', label: 'Hidden layers', min: 1, max: 12, step: 1, value: 4, group: 'Network', help: 'Number of hidden layers.' },
   { id: 'pdeOrder', label: 'Derivative order', min: 1, max: 3, step: 1, value: 2, group: 'Physics', help: 'Highest derivative of the output in the physics residual.' },
+  { id: 'equations', label: 'Equations (PDE terms)', min: 1, max: 7, step: 1, value: 4, group: 'Physics', help: 'Governing equations in the physics loss, illustrative: 1 continuity, +x/y/z momentum (4 = incompressible NS), +k, +epsilon (6 = RANS k-epsilon), +energy (7).' },
   { id: 'lambda', label: 'Physics weight (lambda)', min: 0.1, max: 10, step: 0.1, value: 1, scale: 'log', group: 'Physics', help: 'Weight of the physics loss. Changes the loss balance, not the cost.' },
   { id: 'precision', label: 'Precision', type: 'select', options: [{ value: 'fp32', label: 'fp32' }, { value: 'bf16', label: 'bf16' }], value: 'fp32', group: 'Hardware', help: 'Storage dtype of weights, activations and gradients.' },
   { id: 'adam', label: 'Adam optimizer', type: 'toggle', value: true, group: 'Hardware', help: 'Off = plain SGD (no optimizer state).' },

@@ -45,7 +45,15 @@ button:hover { border-color:var(--accent); }
 #sage-scrub { width:100%; accent-color:var(--gold); height:14px; margin:0; }
 #legend .hint { margin:6px 0 0; font-size:11px; color:var(--muted); max-width:230px; }
 button:focus-visible, input:focus-visible, select:focus-visible { outline:2px solid var(--gold); outline-offset:2px; }
+small.add { margin-left:6px; font-size:11px; color:var(--accent); font-weight:600; font-variant-numeric:tabular-nums; }
+small.add:empty { display:none; }
+#ledger { position:fixed; z-index:3; left:290px; bottom:112px; width:min(430px, calc(100vw - 600px)); padding:8px 10px; background:var(--card); border:1px solid var(--accent); border-radius:10px; font-size:12px; pointer-events:none; }
+#ledger[hidden] { display:none; }
+#ledger h4 { margin:0 0 4px; font-size:12px; font-weight:650; } #ledger h4 em { font-style:normal; color:var(--gold); font-size:10px; text-transform:uppercase; letter-spacing:.05em; margin-left:4px; }
+#ledger div { display:grid; grid-template-columns:54px 1fr; gap:6px; } #ledger span { color:var(--muted); } #ledger b { font-weight:600; font-variant-numeric:tabular-nums; }
+#ledger .rm b { color:#f58ac0; } #ledger .ad b { color:var(--accent); } #ledger .nt b { color:var(--gold); }
 @media (max-width:699px) {
+  #ledger { top:92px; left:var(--gap); bottom:auto; width:auto; right:var(--gap); opacity:.94; font-size:11px; padding:6px 8px; } #ledger h4 { display:none; } #ledger div { grid-template-columns:48px 1fr; }
   #hud-top { gap:2px 14px; padding:8px 10px 6px; } .stat b { font-size:15px; } .stat span { font-size:9px; }
   .tag { flex:1 0 100%; text-align:left; margin:0; font-size:10px; } .tag small { display:inline; margin-left:8px; font-size:10px; }
   .meas { display:none !important; }
@@ -62,12 +70,19 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline:2px so
 <canvas id="stage" aria-label="3D scene: heat sink on a battery pack, sampled points, neural network, output, autograd graphs"></canvas>
 
 <header id="hud-top">
-  <div class="stat"><span>Memory</span><b id="r-mem">-</b></div>
-  <div class="stat"><span>Step time</span><b id="r-time">-</b></div>
+  <div class="stat"><span>Memory</span><b id="r-mem">-</b><small class="add" id="r-mem-add"></small></div>
+  <div class="stat"><span>Step time</span><b id="r-time">-</b><small class="add" id="r-time-add"></small></div>
   <div class="stat"><span>Graph nodes</span><b id="r-nodes">-</b></div>
   <div class="stat"><span>Backward matmuls</span><b id="r-mm">-</b></div>
   <div class="tag">model estimate, illustrative<small class="meas">Measured (Oct deck): ~50x per step, 303 ms to 6.1 ms</small></div>
 </header>
+
+<div id="ledger" hidden>
+  <h4>A big graph is swapped for a small tensor <em>model estimate</em></h4>
+  <div class="rm"><span>removed</span><b id="lg-rm"></b></div>
+  <div class="ad"><span>added</span><b id="lg-ad"></b></div>
+  <div class="nt"><span>net</span><b id="lg-net"></b></div>
+</div>
 
 <aside id="knob-panel" aria-label="Knobs">
   <button id="knob-toggle" type="button" aria-expanded="true">Knobs <i aria-hidden="true"></i></button>
@@ -105,7 +120,7 @@ const __m2 = __r('vendor/three/examples/jsm/controls/OrbitControls.js'); const O
 const __m3 = __r('demo/js/theme.js'); const BG = __m3.BG; const COLORS = __m3.COLORS;
 const __m4 = __r('demo/js/util.js'); const clamp = __m4.clamp; const lerp = __m4.lerp; const easeInOutCubic = __m4.easeInOutCubic; const makeLabel = __m4.makeLabel; const setLabel = __m4.setLabel; const disposeObject = __m4.disposeObject;
 const __m5 = __r('demo/js/knobs.js'); const createKnobs = __m5.createKnobs;
-const __m6 = __r('demo/js/model.js'); const paramsFromKnobs = __m6.paramsFromKnobs; const sageEndpoints = __m6.sageEndpoints; const fmtBytes = __m6.fmtBytes; const fmtTime = __m6.fmtTime; const FACTS = __m6.FACTS;
+const __m6 = __r('demo/js/model.js'); const paramsFromKnobs = __m6.paramsFromKnobs; const sageEndpoints = __m6.sageEndpoints; const EQUATION_SETS = __m6.EQUATION_SETS; const fmtBytes = __m6.fmtBytes; const fmtTime = __m6.fmtTime; const FACTS = __m6.FACTS;
 const __m7 = __r('demo/js/geo.js'); const makePack = __m7.makePack; const PACK = __m7.PACK;
 const __m8 = __r('demo/js/cloud.js'); const createCloud = __m8.createCloud; const drawCount = __m8.drawCount;
 const __m9 = __r('demo/js/net.js'); const createNet = __m9.createNet; const NET = __m9.NET;
@@ -157,6 +172,25 @@ const laneM = new THREE.ShaderMaterial({ transparent: true, depthWrite: false, b
   fragmentShader: 'varying vec2 vUv; uniform float uA, uT; void main(){ float d = smoothstep(0.35,0.0,abs(fract(vUv.x*7.0 - uT)-0.5)); vec3 c = mix(vec3(0.18,0.82,0.9), vec3(0.98,0.8,0.3), d); gl_FragColor = vec4(c, uA*(0.55+0.45*d)); }' });
 const laneMesh = new THREE.Mesh(laneG, laneM); laneMesh.frustumCulled = false; world.add(laneMesh);
 
+// SAGE additions (only visible with SAGE on): (1) v block = one slab per output, sitting on the lane; (2) built-once chip; (3) extra no-grad sweep
+const cyanC = new THREE.Color(COLORS.sage), goldC = new THREE.Color(COLORS.sageAccent);
+const slabG = new THREE.BoxGeometry(1, 1, 1), slabE = new THREE.EdgesGeometry(slabG);
+const vBlock = new THREE.Group(), slabs = [];
+for (let i = 0; i < 7; i++) {
+  const f = new THREE.Mesh(slabG, new THREE.MeshBasicMaterial({ color: COLORS.sage, transparent: true, opacity: 0.35, depthWrite: false }));
+  const ed = new THREE.LineSegments(slabE, new THREE.LineBasicMaterial({ color: COLORS.sageAccent })); f.add(ed); vBlock.add(f); slabs.push(f);
+}
+const V_POS = laneCurve.getPoint(0.5); vBlock.position.copy(V_POS); vBlock.visible = false; world.add(vBlock);
+const CHIP = new THREE.Vector3(9.9, -5.0, 0.3);
+const chip = new THREE.Group(), chipFill = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.93, 0.8), new THREE.MeshBasicMaterial({ color: COLORS.sage, transparent: true, opacity: 0.3, depthWrite: false }));
+const chipEdge = new THREE.LineSegments(new THREE.EdgesGeometry(chipFill.geometry), new THREE.LineBasicMaterial({ color: COLORS.sageAccent }));
+const chipGrid = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints([-0.25, 0, 0.25].flatMap((x) => [new THREE.Vector3(x * 1.5, -0.465, 0.41), new THREE.Vector3(x * 1.5, 0.465, 0.41), new THREE.Vector3(-0.75, x * 1.4, 0.41), new THREE.Vector3(0.75, x * 1.4, 0.41)])), new THREE.LineBasicMaterial({ color: COLORS.sageAccent, transparent: true, opacity: 0.8 }));
+chip.add(chipFill, chipEdge, chipGrid); chip.position.copy(CHIP); chip.visible = false; world.add(chip);
+const sweepM = new THREE.ShaderMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, uniforms: { uA: { value: 0 } },
+  vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.0); }',
+  fragmentShader: 'varying vec2 vUv; uniform float uA; void main(){ float g = smoothstep(0.0,0.9,vUv.x); float e = smoothstep(0.0,0.2,vUv.y)*smoothstep(1.0,0.8,vUv.y); gl_FragColor = vec4(mix(vec3(0.18,0.82,0.9), vec3(0.98,0.8,0.3), pow(vUv.x,6.0)), uA*g*g*e); }' });
+const sweep = new THREE.Mesh(new THREE.PlaneGeometry(3.2, 7.5), sweepM); sweep.rotation.y = Math.PI / 2 * 0; sweep.visible = false; sweep.frustumCulled = false; world.add(sweep);
+
 // faint conduits (flow direction cues); brightness driven by the phase
 const conduits = [];
 const addLink = (pts, color) => {
@@ -183,9 +217,12 @@ label('illustrative output', OUT_X, 0, 0, 0, PACK.finTop * OUT_S + 0.7, { color:
 const labelData = label('regular training graph', (GR.x0 + GR.x1) / 2, Y.dataF, 0, 0, 0.7, { color: '#7bd8c4' });
 const labelPhys = label('physics graph (derivative of derivative)', (GR.x0 + GR.x1) / 2, Y.physF, 0, 0, 1.9, { color: '#f58ac0' });
 label('loss', LOSS.data.x, LOSS.data.y, 0, 1.0, -0.65, { size: 0.42 });
-const labelV = label('v = dL/d(u-hat), closed form', 8.9, -6.4, 1.0, 0, 0, { color: '#6fe0f0', size: 0.46 });
+const labelV = label('v = dL/d(u-hat)', V_POS.x, V_POS.y, 0.6, 0, -1.1, { color: '#6fe0f0', size: 0.44, po: [0, -1.5] });
+const labelChip = label('built once', CHIP.x, CHIP.y, CHIP.z, 0, -0.95, { color: '#f2c14e', size: 0.44, po: [0, -1.3] });
+const labelSweep = label('extra pass, no graph', (IN_X + OUT_X) / 2, 0, 0, 0, 3.4, { color: '#6fe0f0', size: 0.44 });
 
 // ---------- knobs / state ----------
+const sizeLabel = (l, t) => { setLabel(l, t); l.userData.s0.copy(l.scale); l.scale.multiplyScalar(portrait ? 1.7 : 1); };
 const knobs = createKnobs($('knob-panel'));
 const S = { u: 0, playing: !reduced, s: 0, sTarget: 0, sTween: false, cfg: null, ends: null, rebuildPending: true, hudKey: '' };
 const eOf = () => easeInOutCubic(S.s);
@@ -198,6 +235,11 @@ function rebuild() {
   net.rebuild(cfg); dataGraph.rebuild(cfg); physGraph.rebuild(cfg);
   cloud.setCounts(drawCount(cfg.batch), drawCount(cfg.resPoints)); cloud.setLambda(cfg.lambda);
   physGraph.uni.uLambda.value = clamp(0.55 + 0.45 * Math.sqrt(cfg.lambda), 0.4, 1.7);
+  const ad = S.ends.added;
+  sizeLabel(labelV, `v = dL/d(u-hat): ${fmtBytes(ad.v)}, ${ad.vOutputs} outputs`); sizeLabel(labelChip, `built once, not per step: ${fmtBytes(ad.builtOnce)}`);
+  const sw = Math.min(0.9, Math.max(0.16, 0.28 * Math.cbrt(cfg.resPoints / 4096))); // slab size ~ cbrt(points); NOT to scale with the graph's MB
+  slabs.forEach((m, i) => { m.visible = i < ad.vOutputs; m.scale.set(2.0, 0.22, sw); m.position.set(0, 0, (i - (ad.vOutputs - 1) / 2) * (sw + 0.1)); m.rotation.set(0, 0, 0); });
+  vBlock.rotation.z = -0.5;
   S.counts = { data: drawCount(cfg.batch), res: drawCount(cfg.resPoints), nodes: dataGraph.stats.nNodes + physGraph.stats.nNodes };
 }
 
@@ -253,7 +295,8 @@ addEventListener('resize', () => resize(false));
 
 // ---------- UI wiring ----------
 const el = { mem: $('r-mem'), time: $('r-time'), nodes: $('r-nodes'), mm: $('r-mm'), phase: $('phase'), play: $('btn-play'), replay: $('btn-replay'), scrub: $('scrub'),
-  sage: $('sage-btn'), sageScrub: $('sage-scrub'), panel: $('knob-panel'), ptoggle: $('knob-toggle'), sageState: $('sage-state') };
+  sage: $('sage-btn'), sageScrub: $('sage-scrub'), panel: $('knob-panel'), ptoggle: $('knob-toggle'), sageState: $('sage-state'),
+  memAdd: $('r-mem-add'), timeAdd: $('r-time-add'), ledger: $('ledger'), lgRm: $('lg-rm'), lgAd: $('lg-ad'), lgNet: $('lg-net') };
 const setPlaying = (p) => { S.playing = p; el.play.textContent = p ? 'Pause' : 'Play'; el.play.setAttribute('aria-pressed', String(!p)); dirty = true; };
 setPlaying(S.playing);
 el.play.onclick = () => { if (!S.playing && S.u >= 1) S.u = 0; setPlaying(!S.playing); };
@@ -271,9 +314,14 @@ el.ptoggle.onclick = () => setPanel(el.panel.classList.contains('collapsed'));
 setPanel(!mobile());
 
 // ---------- per-frame ----------
+const ss = (a, b, x) => { const t = clamp((x - a) / (b - a)); return t * t * (3 - 2 * t); };
+// graph peels away (e) while the added items appear: v grows in over e 0.1..0.7, the built-once chip over 0..0.4, the extra pass time over 0.05..0.35
 function numbers(e) {
-  const b = S.ends.base, g = S.ends.sage;
-  return { mem: lerp(b.memory, g.memory, e), time: lerp(b.stepTime, g.stepTime, e), nodes: Math.round(lerp(b.nodes, g.nodes, e)), mm: Math.round(lerp(b.matmuls, g.matmuls, e)) };
+  const b = S.ends.base, g = S.ends.sage, a = S.ends.added, r = S.ends.removed;
+  const kV = ss(0.1, 0.7, e), kC = ss(0, 0.4, e), kP = clamp((e - 0.05) / 0.3);
+  const mem = lerp(b.memory, g.memoryPlain, e) + a.v * kV + a.builtOnce * kC, time = lerp(b.stepTime, g.stepTimePlain, e) + a.extraTime * kP;
+  return { mem, time, nodes: Math.round(lerp(b.nodes, g.nodes, e)), mm: Math.round(lerp(b.matmuls, g.matmuls, e)), kV, kC, kP,
+    removedB: r.graphBytes * e, removedN: Math.round(r.nodes * e), addedB: a.v * kV + a.builtOnce * kC, addedT: a.extraTime * kP, dMem: mem - b.memory, dTime: time - b.stepTime };
 }
 function applyFrame(dt) {
   if (S.rebuildPending) rebuild();
@@ -306,7 +354,16 @@ function applyFrame(dt) {
   orbPhys.material.color.set(COLORS.physics).lerp(_gold, smoothstepE(e));
   laneM.uniforms.uA.value = clamp((e - 0.25) / 0.4); laneM.uniforms.uT.value = (performance.now() / 1000 * 0.9) % 1;
   labelPhys.visible = e < 0.7; labelPhys.material.opacity = clamp(1 - e * 1.5);
-  labelV.visible = e > 0.6; labelV.material.opacity = clamp((e - 0.6) / 0.35);
+  // SAGE additions
+  const nn = numbers(e), now = performance.now() / 1000;
+  vBlock.visible = nn.kV > 0.002; vBlock.scale.setScalar(Math.max(nn.kV, 0.001));
+  const vpw = tl.hasVp ? prog(u, tl.vp) : 0, sweeping = tl.hasVp && u >= tl.vp[0] && u < tl.vp[1];
+  const flash = sweeping ? 1 : (tl.hasVp && u >= tl.vp[1] && u < tl.vp[1] + 0.06 ? 1 - (u - tl.vp[1]) / 0.06 : 0);
+  slabs.forEach((m) => { m.material.opacity = 0.28 + 0.4 * flash + 0.1 * Math.sin(now * 2); });
+  chip.visible = nn.kC > 0.002; chip.scale.setScalar(Math.max(nn.kC, 0.001)); chipFill.material.opacity = 0.26 + 0.45 * (sweeping ? 1 : 0);
+  const sx = lerp(IN_X + 1.5, OUT_X - 1.0, vpw); sweep.position.set(sx, 0.4, 0); sweep.visible = sweeping; sweepM.uniforms.uA.value = sweeping ? 0.9 * Math.sin(Math.PI * clamp(vpw)) ** 0.5 : 0;
+  labelV.visible = nn.kV > 0.5; labelChip.visible = nn.kC > 0.6; labelSweep.visible = sweeping && !reduced;
+  labelV.material.opacity = clamp((nn.kV - 0.5) / 0.4); labelChip.material.opacity = clamp((nn.kC - 0.6) / 0.35);
   // conduits
   linkOut.m.opacity = 0.2 + 0.6 * (fp > 0 && fp < 1 ? 1 : 0);
   for (const l of [linkLossD, linkLossP]) l.m.opacity = 0.2 + 0.5 * (outP > 0 && outP < 1 ? 1 : 0);
@@ -314,10 +371,15 @@ function applyFrame(dt) {
   linkBwdP.m.opacity = (0.2 + 0.6 * (u >= tl.bwdPhys[0] && u < tl.bwdPhys[1] ? 1 : 0)) * (1 - smoothstepE(e));
   linkBwdP.l.visible = e < 0.98;
   // HUD
-  const n = numbers(e);
-  const key = [fmtBytes(n.mem), fmtTime(n.time), n.nodes, n.mm].join('|');
+  const n = nn;
+  const key = [fmtBytes(n.mem), fmtTime(n.time), n.nodes, n.mm, fmtBytes(n.addedB), fmtTime(n.addedT), fmtBytes(Math.abs(n.dMem)), fmtBytes(n.removedB)].join('|');
   if (key !== S.hudKey) {
     S.hudKey = key; el.mem.textContent = fmtBytes(n.mem); el.time.textContent = fmtTime(n.time); el.nodes.textContent = n.nodes; el.mm.textContent = n.mm;
+    const on = e > 0.002; el.memAdd.textContent = on ? '+' + fmtBytes(n.addedB) + ' added' : ''; el.timeAdd.textContent = on ? '+' + fmtTime(n.addedT) + ' extra pass' : '';
+    el.ledger.hidden = !on;
+    el.lgRm.textContent = `physics graph ${fmtBytes(n.removedB)}, ${n.removedN} nodes`;
+    el.lgAd.textContent = `v ${fmtBytes(S.ends.added.v * n.kV)}, built once ${fmtBytes(S.ends.added.builtOnce * n.kC)}, extra pass ${fmtTime(n.addedT)}`;
+    el.lgNet.textContent = `memory ${n.dMem < 0 ? '-' : '+'}${fmtBytes(Math.abs(n.dMem))}, step ${n.dTime < 0 ? '-' : '+'}${fmtTime(Math.abs(n.dTime))}`;
   }
   el.mem.dataset.v = n.mem; el.time.dataset.v = n.time; // exact values for tests / tooling
   const ph = phaseAt(u, tl, e); if (el.phase.textContent !== ph) el.phase.textContent = ph;
@@ -344,7 +406,8 @@ rebuild(); resize(true);
 // test / debug hook (read-only snapshot + a few setters)
 window.__sage = {
   state: () => ({ u: S.u, s: S.s, sTarget: S.sTarget, playing: S.playing, nodes: +el.nodes.textContent, matmuls: +el.mm.textContent, memory: +el.mem.dataset.v, stepTime: +el.time.dataset.v,
-    memText: el.mem.textContent, timeText: el.time.textContent, phase: el.phase.textContent, counts: S.counts, graphNodes: { data: dataGraph.stats.nNodes, phys: physGraph.stats.nNodes },
+    memText: el.mem.textContent, added: { vBlock: vBlock.visible, chip: chip.visible, ledger: !el.ledger.hidden, sweep: sweep.visible, vSlabs: slabs.filter((m) => m.visible).length, memAdd: el.memAdd.textContent, timeAdd: el.timeAdd.textContent, ledgerText: el.ledger.textContent, hasVp: timeline(S.ends, eOf()).hasVp },
+    equations: S.cfg.nResiduals, timeText: el.time.textContent, phase: el.phase.textContent, counts: S.counts, graphNodes: { data: dataGraph.stats.nNodes, phys: physGraph.stats.nNodes },
     mem: { geometries: renderer.info.memory.geometries, textures: renderer.info.memory.textures }, calls: renderer.info.render.calls, reduced }),
   setU: (u) => { S.u = u; setPlaying(false); dirty = true; },
   setS: (s) => { S.s = s; S.sTarget = s > 0.5 ? 1 : 0; S.sTween = false; el.sageScrub.value = Math.round(s * 1000); dirty = true; },
@@ -54902,6 +54965,7 @@ const CORE_KNOBS = [
   { id: 'width', label: 'Layer width', min: 16, max: 1024, step: 8, value: 128, scale: 'log', group: 'Network', help: 'Neurons per hidden layer.' },
   { id: 'depth', label: 'Hidden layers', min: 1, max: 12, step: 1, value: 4, group: 'Network', help: 'Number of hidden layers.' },
   { id: 'pdeOrder', label: 'Derivative order', min: 1, max: 3, step: 1, value: 2, group: 'Physics', help: 'Highest derivative of the output in the physics residual.' },
+  { id: 'equations', label: 'Equations (PDE terms)', min: 1, max: 7, step: 1, value: 4, group: 'Physics', help: 'Governing equations in the physics loss, illustrative: 1 continuity, +x/y/z momentum (4 = incompressible NS), +k, +epsilon (6 = RANS k-epsilon), +energy (7).' },
   { id: 'lambda', label: 'Physics weight (lambda)', min: 0.1, max: 10, step: 0.1, value: 1, scale: 'log', group: 'Physics', help: 'Weight of the physics loss. Changes the loss balance, not the cost.' },
   { id: 'precision', label: 'Precision', type: 'select', options: [{ value: 'fp32', label: 'fp32' }, { value: 'bf16', label: 'bf16' }], value: 'fp32', group: 'Hardware', help: 'Storage dtype of weights, activations and gradients.' },
   { id: 'adam', label: 'Adam optimizer', type: 'toggle', value: true, group: 'Hardware', help: 'Off = plain SGD (no optimizer state).' },
@@ -54977,7 +55041,7 @@ function createKnobs(panelEl) {
 
 };
 /* ---- demo/js/model.js ---- */
-__defs['demo/js/model.js']=function(__e,__id){var __dyn=function(s){try{return Promise.resolve(__r(__resolve(s,__id)));}catch(x){return Promise.reject(x);}};Object.defineProperty(__e,'FACTS',{enumerable:true,get:function(){return FACTS;}});Object.defineProperty(__e,'DEFAULTS',{enumerable:true,get:function(){return DEFAULTS;}});Object.defineProperty(__e,'normalize',{enumerable:true,get:function(){return normalize;}});Object.defineProperty(__e,'paramsFromKnobs',{enumerable:true,get:function(){return paramsFromKnobs;}});Object.defineProperty(__e,'dtypeBytes',{enumerable:true,get:function(){return dtypeBytes;}});Object.defineProperty(__e,'layerDims',{enumerable:true,get:function(){return layerDims;}});Object.defineProperty(__e,'linearLayers',{enumerable:true,get:function(){return linearLayers;}});Object.defineProperty(__e,'paramCount',{enumerable:true,get:function(){return paramCount;}});Object.defineProperty(__e,'memoryBreakdown',{enumerable:true,get:function(){return memoryBreakdown;}});Object.defineProperty(__e,'flops',{enumerable:true,get:function(){return flops;}});Object.defineProperty(__e,'towerFactor',{enumerable:true,get:function(){return towerFactor;}});Object.defineProperty(__e,'resRatio',{enumerable:true,get:function(){return resRatio;}});Object.defineProperty(__e,'towerEff',{enumerable:true,get:function(){return towerEff;}});Object.defineProperty(__e,'ridge',{enumerable:true,get:function(){return ridge;}});Object.defineProperty(__e,'stepCost',{enumerable:true,get:function(){return stepCost;}});Object.defineProperty(__e,'autogradGraph',{enumerable:true,get:function(){return autogradGraph;}});Object.defineProperty(__e,'sageEndpoints',{enumerable:true,get:function(){return sageEndpoints;}});Object.defineProperty(__e,'inflation',{enumerable:true,get:function(){return inflation;}});Object.defineProperty(__e,'sageTraffic',{enumerable:true,get:function(){return sageTraffic;}});Object.defineProperty(__e,'results',{enumerable:true,get:function(){return results;}});Object.defineProperty(__e,'fmtBytes',{enumerable:true,get:function(){return fmtBytes;}});Object.defineProperty(__e,'fmtFlops',{enumerable:true,get:function(){return fmtFlops;}});Object.defineProperty(__e,'fmtTime',{enumerable:true,get:function(){return fmtTime;}});
+__defs['demo/js/model.js']=function(__e,__id){var __dyn=function(s){try{return Promise.resolve(__r(__resolve(s,__id)));}catch(x){return Promise.reject(x);}};Object.defineProperty(__e,'FACTS',{enumerable:true,get:function(){return FACTS;}});Object.defineProperty(__e,'DEFAULTS',{enumerable:true,get:function(){return DEFAULTS;}});Object.defineProperty(__e,'EQUATION_SETS',{enumerable:true,get:function(){return EQUATION_SETS;}});Object.defineProperty(__e,'ASSUMPTIONS',{enumerable:true,get:function(){return ASSUMPTIONS;}});Object.defineProperty(__e,'normalize',{enumerable:true,get:function(){return normalize;}});Object.defineProperty(__e,'paramsFromKnobs',{enumerable:true,get:function(){return paramsFromKnobs;}});Object.defineProperty(__e,'dtypeBytes',{enumerable:true,get:function(){return dtypeBytes;}});Object.defineProperty(__e,'layerDims',{enumerable:true,get:function(){return layerDims;}});Object.defineProperty(__e,'linearLayers',{enumerable:true,get:function(){return linearLayers;}});Object.defineProperty(__e,'paramCount',{enumerable:true,get:function(){return paramCount;}});Object.defineProperty(__e,'memoryBreakdown',{enumerable:true,get:function(){return memoryBreakdown;}});Object.defineProperty(__e,'flops',{enumerable:true,get:function(){return flops;}});Object.defineProperty(__e,'towerFactor',{enumerable:true,get:function(){return towerFactor;}});Object.defineProperty(__e,'resRatio',{enumerable:true,get:function(){return resRatio;}});Object.defineProperty(__e,'towerEff',{enumerable:true,get:function(){return towerEff;}});Object.defineProperty(__e,'ridge',{enumerable:true,get:function(){return ridge;}});Object.defineProperty(__e,'stepCost',{enumerable:true,get:function(){return stepCost;}});Object.defineProperty(__e,'autogradGraph',{enumerable:true,get:function(){return autogradGraph;}});Object.defineProperty(__e,'sageAdded',{enumerable:true,get:function(){return sageAdded;}});Object.defineProperty(__e,'sageEndpoints',{enumerable:true,get:function(){return sageEndpoints;}});Object.defineProperty(__e,'inflation',{enumerable:true,get:function(){return inflation;}});Object.defineProperty(__e,'sageTraffic',{enumerable:true,get:function(){return sageTraffic;}});Object.defineProperty(__e,'results',{enumerable:true,get:function(){return results;}});Object.defineProperty(__e,'fmtBytes',{enumerable:true,get:function(){return fmtBytes;}});Object.defineProperty(__e,'fmtFlops',{enumerable:true,get:function(){return fmtFlops;}});Object.defineProperty(__e,'fmtTime',{enumerable:true,get:function(){return fmtTime;}});
 // model.js - pure analytic cost model for an MLP PINN training step. No imports, no DOM: runs in node.
 // EVERYTHING here is a stylised "model estimate" (label it so in the HUD) except FACTS, which are
 // quoted from the Sep/Oct 2026 decks. Do not present model output as a measurement.
@@ -54998,11 +55062,26 @@ const DEFAULTS = {
   batch: 4096, width: 128, depth: 4, // depth = number of HIDDEN layers; linear layers L = depth + 1
   inDim: 3, outDim: 4, precision: 'fp32',
   bandwidthGBs: 696, peakTflops: 37,
-  pdeOrder: 2, nResiduals: 4,
+  pdeOrder: 2, nResiduals: 4, // nResiduals = number of governing equations (knob "equations"); 4 = incompressible NS (see EQUATION_SETS)
   resPoints: 4096, // physics (residual) collocation points per step; batch = data points per step
   adam: true, lambda: 1, // Adam on/off; physics loss weight (visual only: no effect on cost)
   sageHalf: false, sageSinglePass: false,
 };
+
+/**
+ * ILLUSTRATIVE equation sets for the "equations" knob (value n = the first n of this list; NOT from the decks):
+ * 1 continuity | 2 +x-momentum | 3 +y-momentum | 4 +z-momentum (incompressible NS, default) | 5 +k | 6 +epsilon (RANS k-epsilon) | 7 +energy (conjugate heat transfer).
+ * Fields beyond the 4 network outputs (u,v,w,p) each add one network output (k, epsilon, T), so equations > 4 widen the output layer.
+ */
+const EQUATION_SETS = ['continuity', 'x-momentum', 'y-momentum', 'z-momentum (incompressible NS)', 'k (turbulent kinetic energy)', 'epsilon (RANS k-epsilon)', 'energy (heat transfer)'];
+
+/**
+ * SAGE added-cost ASSUMPTIONS (model estimates, not measurements; the decks give no per-item sizes). Do not present as measured.
+ *  tapePerEq 10 entries/equation (4 equations ~ the "tape ~40 entries" of the decks); tapeBytes 64 B/entry; codeBytesPerEq 2 KB compiled straight-line code per equation;
+ *  diffMatrix: fixed spectral differentiation matrices, inDim x 64x64 fp32 (a DT-PINN prerequisite, independent of the batch, built ONCE);
+ *  extra pass: one no-grad forward + closed-form PDE evaluation over the residual points that writes v (priced with the same roofline as the main forward).
+ */
+const ASSUMPTIONS = { tapePerEq: 10, tapeBytes: 64, codeBytesPerEq: 2048, diffN: 64, diffBytes: 4 };
 
 /** Merge partial cfg over DEFAULTS. All other functions call this, so you can pass partial objects. */
 function normalize(cfg = {}) { return { ...DEFAULTS, ...cfg }; }
@@ -55014,7 +55093,7 @@ function paramsFromKnobs(get) {
     batch: g('batch', DEFAULTS.batch), width: g('width', DEFAULTS.width), depth: g('depth', DEFAULTS.depth),
     precision: g('precision', DEFAULTS.precision), bandwidthGBs: g('bandwidth', DEFAULTS.bandwidthGBs),
     peakTflops: g('peakTflops', DEFAULTS.peakTflops), pdeOrder: g('pdeOrder', DEFAULTS.pdeOrder),
-    nResiduals: g('nResiduals', DEFAULTS.nResiduals), resPoints: g('resPoints', DEFAULTS.resPoints),
+    nResiduals: g('equations', DEFAULTS.nResiduals), outDim: Math.max(DEFAULTS.outDim, g('equations', DEFAULTS.nResiduals)), resPoints: g('resPoints', DEFAULTS.resPoints),
     adam: g('adam', true) !== false, lambda: g('lambda', 1),
     sageHalf: !!g('sageHalf', false), sageSinglePass: !!g('sageSinglePass', false),
   });
@@ -55062,9 +55141,9 @@ function flops(cfg) {
 
 /**
  * Stylised derivative-tower multiplier T = 1 + d * (2^(p+1) - 2): each input dim (d = inDim) needs derivatives of
- * order 1..p, each order roughly doubling the graph. T(d=3,p=2) = 19. A model assumption, not a measurement.
+ * order 1..p, each order roughly doubling the graph. T(d=3,p=2) = 19 at the default 4 equations; the derivative part scales with nResiduals/4 (each equation brings its own derivative branches; illustrative). A model assumption, not a measurement.
  */
-function towerFactor(cfg) { const c = normalize(cfg); return 1 + c.inDim * (Math.pow(2, c.pdeOrder + 1) - 2); }
+function towerFactor(cfg) { const c = normalize(cfg); return 1 + Math.round(c.inDim * (Math.pow(2, c.pdeOrder + 1) - 2) * c.nResiduals / DEFAULTS.nResiduals); }
 /** Residual-point ratio rho = resPoints / batch (1 if resPoints is unset). */
 function resRatio(cfg) { const c = normalize(cfg); return c.resPoints == null ? 1 : c.resPoints / c.batch; }
 /** Effective tower multiplier: only the residual-point fraction pays the derivative tower. T_eff = 1 + (T-1) * rho. */
@@ -55123,15 +55202,32 @@ function autogradGraph(cfg, variant = 'physics') {
 }
 
 /**
+ * What SAGE ADDS (model estimates, see ASSUMPTIONS): v = dL/d u-hat (resPoints x outDim values, compute dtype), the built-once derivation + differentiation matrices
+ * (constant, not regenerated per step) and the extra no-grad forward + PDE pass that produces v. Returns {v, vOutputs, builtOnce, tape, extraTime}.
+ */
+function sageAdded(cfg) {
+  const c = normalize(cfg), A = ASSUMPTIONS, b = dtypeBytes(c.precision), rp = c.resPoints == null ? c.batch : c.resPoints;
+  const v = rp * c.outDim * b, tape = A.tapePerEq * c.nResiduals;
+  const builtOnce = tape * A.tapeBytes + A.codeBytesPerEq * c.nResiduals + c.inDim * A.diffN * A.diffN * A.diffBytes;
+  const cr = { ...c, batch: rp }, mr = memoryBreakdown(cr), fr = flops(cr).fwd;
+  const ph = phase(fr + rp * c.nResiduals * 8, mr.weights + 2 * mr.activations + rp * c.nResiduals * b * 2 + v, c);
+  return { v, vOutputs: c.outDim, builtOnce, tape, extraTime: ph.time };
+}
+
+/**
  * Endpoints of the SAGE toggle for the HUD (all MODEL ESTIMATES): {base, sage} each {memory (bytes), stepTime (s), nodes, matmuls}.
  * base = data graph + physics graph; sage = one ordinary graph (the physics graph is gone, its derivative part is the closed-form v).
  */
 function sageEndpoints(cfg) {
   const sup = autogradGraph(cfg, 'supervised'), phy = autogradGraph(cfg, 'physics'), sg = autogradGraph(cfg, 'sage');
-  const pc = stepCost(cfg, 'physics'), sc = stepCost(cfg, 'sage');
+  const pc = stepCost(cfg, 'physics'), sc = stepCost(cfg, 'sage'), add = sageAdded(cfg);
+  const baseMem = pc.memory.total - pc.memory.activations + pc.memory.activationsStored;
   return {
-    base: { memory: pc.memory.total - pc.memory.activations + pc.memory.activationsStored, stepTime: pc.total.time, nodes: sup.totalNodes + phy.totalNodes, matmuls: phy.matmuls, bwdTime: pc.bwd.time },
-    sage: { memory: sc.memory.total, stepTime: sc.total.time, nodes: sg.totalNodes, matmuls: sg.matmuls, bwdTime: sc.bwd.time },
+    base: { memory: baseMem, stepTime: pc.total.time, nodes: sup.totalNodes + phy.totalNodes, matmuls: phy.matmuls, bwdTime: pc.bwd.time },
+    // sage.memory / stepTime are NET: plain one-graph step + v + built-once (memory), + the extra no-grad pass (time)
+    sage: { memory: sc.memory.total + add.v + add.builtOnce, stepTime: sc.total.time + add.extraTime, nodes: sg.totalNodes, matmuls: sg.matmuls, bwdTime: sc.bwd.time,
+      memoryPlain: sc.memory.total, stepTimePlain: sc.total.time },
+    added: add, removed: { graphBytes: baseMem - sc.memory.total, nodes: phy.totalNodes, time: pc.total.time - sc.total.time },
   };
 }
 
@@ -55462,7 +55558,7 @@ __defs['demo/js/graph.js']=function(__e,__id){var __dyn=function(s){try{return P
 //   createGraph(THREE, variant, origin) builds the GPU objects once (fixed capacity, instanced) and uploads on rebuild().
 const __m1 = __r('demo/js/model.js'); const layerDims = __m1.layerDims; const linearLayers = __m1.linearLayers; const towerFactor = __m1.towerFactor; const autogradGraph = __m1.autogradGraph; const memoryBreakdown = __m1.memoryBreakdown; const resRatio = __m1.resRatio;
 
-const GR = { x0: -8, x1: 3.6, cap: 3600, edgeCap: 9600 };
+const GR = { x0: -8, x1: 3.6, cap: 6400, edgeCap: 20000 };
 const REF_BYTES = 4096 * 128 * 4, REF_FLOPS = 2 * 4096 * 128 * 128;
 const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
 const hash = (n) => { const s = Math.sin(n * 127.1 + 311.7) * 43758.5453; return s - Math.floor(s); };
@@ -55627,7 +55723,7 @@ __defs['demo/js/anim.js']=function(__e,__id){var __dyn=function(s){try{return Pr
 // (the physics graph takes longer the heavier it is) -> gradient reaches the network -> optimizer update.
 const __m1 = __r('demo/js/util.js'); const clamp = __m1.clamp; const lerp = __m1.lerp;
 
-const SEG = { pts: 1.0, net: 1.2, out: 0.6, dataBwd: 1.2, netBwd: 0.7, opt: 0.8 };
+const SEG = { pts: 1.0, vp: 0.9, net: 1.2, out: 0.6, dataBwd: 1.2, netBwd: 0.7, opt: 0.8 };
 
 /** ends = model.sageEndpoints(cfg); e = eased SAGE progress 0..1. Returns windows in u-space (0..1) plus total seconds. */
 function timeline(ends, e) {
@@ -55635,10 +55731,11 @@ function timeline(ends, e) {
   const physBase = SEG.dataBwd * clamp(Math.sqrt(ratio), 1, 4.5);
   const phys = lerp(physBase, SEG.dataBwd, e);
   const bwd = Math.max(SEG.dataBwd, phys);
-  const total = SEG.pts + SEG.net + SEG.out + bwd + SEG.netBwd + SEG.opt + 0.5; // 0.5 s hold at the end
+  const vp = SEG.vp * clamp((e - 0.05) / 0.3); // SAGE-only extra no-grad pass that produces v (0 at baseline, so baseline timing is unchanged)
+  const total = SEG.pts + vp + SEG.net + SEG.out + bwd + SEG.netBwd + SEG.opt + 0.5; // 0.5 s hold at the end
   const w = (a, d) => [a / total, (a + d) / total];
-  const t1 = SEG.pts, t2 = t1 + SEG.net, t3 = t2 + SEG.out, t4 = t3 + bwd, t5 = t4 + SEG.netBwd;
-  return { total, pts: w(0, SEG.pts), fwd: w(t1, SEG.net), out: w(t2, SEG.out), bwdData: w(t3, SEG.dataBwd), bwdPhys: w(t3, phys), netBwd: w(t4, SEG.netBwd), opt: w(t5, SEG.opt) };
+  const t1 = SEG.pts + vp, t2 = t1 + SEG.net, t3 = t2 + SEG.out, t4 = t3 + bwd, t5 = t4 + SEG.netBwd;
+  return { total, pts: w(0, SEG.pts), vp: w(SEG.pts, vp), hasVp: vp > 1e-6, fwd: w(t1, SEG.net), out: w(t2, SEG.out), bwdData: w(t3, SEG.dataBwd), bwdPhys: w(t3, phys), netBwd: w(t4, SEG.netBwd), opt: w(t5, SEG.opt) };
 }
 
 /** progress 0..1 of u inside window [a,b] (clamped). */
@@ -55646,6 +55743,7 @@ const prog = (u, win) => clamp((u - win[0]) / (win[1] - win[0]));
 
 function phaseAt(u, tl, e) {
   if (u < tl.pts[1]) return 'points travel to the network';
+  if (tl.hasVp && u >= tl.vp[0] && u < tl.vp[1]) return 'extra cheap pass, no graph: computes v';
   if (u < tl.fwd[1]) return 'forward pass';
   if (u < tl.out[1]) return 'output and loss';
   if (u < tl.netBwd[0]) return e > 0.5 ? 'backward: one ordinary pass (v from the lane)' : 'backward: through the autograd graphs';

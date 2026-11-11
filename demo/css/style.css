@@ -36,7 +36,15 @@ button:hover { border-color:var(--accent); }
 #sage-scrub { width:100%; accent-color:var(--gold); height:14px; margin:0; }
 #legend .hint { margin:6px 0 0; font-size:11px; color:var(--muted); max-width:230px; }
 button:focus-visible, input:focus-visible, select:focus-visible { outline:2px solid var(--gold); outline-offset:2px; }
+small.add { margin-left:6px; font-size:11px; color:var(--accent); font-weight:600; font-variant-numeric:tabular-nums; }
+small.add:empty { display:none; }
+#ledger { position:fixed; z-index:3; left:290px; bottom:112px; width:min(430px, calc(100vw - 600px)); padding:8px 10px; background:var(--card); border:1px solid var(--accent); border-radius:10px; font-size:12px; pointer-events:none; }
+#ledger[hidden] { display:none; }
+#ledger h4 { margin:0 0 4px; font-size:12px; font-weight:650; } #ledger h4 em { font-style:normal; color:var(--gold); font-size:10px; text-transform:uppercase; letter-spacing:.05em; margin-left:4px; }
+#ledger div { display:grid; grid-template-columns:54px 1fr; gap:6px; } #ledger span { color:var(--muted); } #ledger b { font-weight:600; font-variant-numeric:tabular-nums; }
+#ledger .rm b { color:#f58ac0; } #ledger .ad b { color:var(--accent); } #ledger .nt b { color:var(--gold); }
 @media (max-width:699px) {
+  #ledger { top:92px; left:var(--gap); bottom:auto; width:auto; right:var(--gap); opacity:.94; font-size:11px; padding:6px 8px; } #ledger h4 { display:none; } #ledger div { grid-template-columns:48px 1fr; }
   #hud-top { gap:2px 14px; padding:8px 10px 6px; } .stat b { font-size:15px; } .stat span { font-size:9px; }
   .tag { flex:1 0 100%; text-align:left; margin:0; font-size:10px; } .tag small { display:inline; margin-left:8px; font-size:10px; }
   .meas { display:none !important; }
